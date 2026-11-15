@@ -1,0 +1,205 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Sector {
+  id          String       @id @default(cuid())
+  code        String       @unique
+  nameAr      String
+  nameEn      String
+  createdAt   DateTime     @default(now())
+  departments Department[]
+}
+
+model Department {
+  id          String                @id @default(cuid())
+  sectorId    String
+  sector      Sector                @relation(fields: [sectorId], references: [id])
+  code        String                @unique
+  nameAr      String
+  nameEn      String
+  sortOrder   Int
+  isActive    Boolean               @default(true)
+  createdAt   DateTime              @default(now())
+  users       User[]
+  assignments OperationDepartment[]
+
+  @@index([sectorId])
+}
+
+model User {
+  id           String               @id @default(cuid())
+  email        String               @unique
+  passwordHash String
+  nameAr       String
+  nameEn       String
+  role         String
+  tasks        String?
+  departmentId String?
+  department   Department?          @relation(fields: [departmentId], references: [id])
+  isActive     Boolean              @default(true)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  operations   Operation[]          @relation("OperationCreator")
+  adjustments  FinancialAdjustment[] @relation("AdjustmentAuthor")
+  dateChanges  StageDateChange[]    @relation("DateChangeAuthor")
+  audits       AuditLog[]           @relation("AuditActor")
+
+  @@index([role])
+  @@index([departmentId])
+}
+
+model OperationType {
+  id         String            @id @default(cuid())
+  code       String            @unique
+  nameAr     String
+  nameEn     String
+  isSystem   Boolean           @default(false)
+  isActive   Boolean           @default(true)
+  sortOrder  Int
+  createdAt  DateTime          @default(now())
+  stages     StageDefinition[]
+  operations Operation[]
+}
+
+model StageDefinition {
+  id              String                    @id @default(cuid())
+  operationTypeId String
+  operationType   OperationType             @relation(fields: [operationTypeId], references: [id])
+  code            String
+  nameAr          String
+  nameEn          String
+  sortOrder       Int
+  durationMonths  Int                       @default(0)
+  durationDays    Int                       @default(0)
+  anchor          String
+  isActive        Boolean                   @default(true)
+  createdAt       DateTime                  @default(now())
+  progress        DepartmentStageProgress[]
+
+  @@unique([operationTypeId, code])
+}
+
+model Operation {
+  id                    String                @id @default(cuid())
+  nameAr                String
+  nameEn                String                @default("")
+  operationTypeId       String
+  operationType         OperationType         @relation(fields: [operationTypeId], references: [id])
+  technicalApprovalDate DateTime
+  createdById           String
+  createdBy             User                  @relation("OperationCreator", fields: [createdById], references: [id])
+  isDeleted             Boolean               @default(false)
+  deletedAt             DateTime?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  assignments           OperationDepartment[]
+
+  @@index([isDeleted])
+  @@index([operationTypeId])
+}
+
+model OperationDepartment {
+  id             String                    @id @default(cuid())
+  operationId    String
+  operation      Operation                 @relation(fields: [operationId], references: [id])
+  departmentId   String
+  department     Department                @relation(fields: [departmentId], references: [id])
+  approvalStart  DateTime?
+  approvalEnd    DateTime?
+  modifiedStart  DateTime?
+  modifiedEnd    DateTime?
+  approvedAmount String                    @default("0.00")
+  isDeleted      Boolean                   @default(false)
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  adjustments    FinancialAdjustment[]
+  progress       DepartmentStageProgress[]
+
+  @@unique([operationId, departmentId])
+  @@index([departmentId])
+}
+
+model FinancialAdjustment {
+  id                    String              @id @default(cuid())
+  operationDepartmentId String
+  operationDepartment   OperationDepartment @relation(fields: [operationDepartmentId], references: [id])
+  deltaAmount           String
+  effectiveDate         DateTime
+  reason                String?
+  createdById           String
+  createdBy             User                @relation("AdjustmentAuthor", fields: [createdById], references: [id])
+  createdAt             DateTime            @default(now())
+
+  @@index([operationDepartmentId])
+}
+
+model DepartmentStageProgress {
+  id                    String              @id @default(cuid())
+  operationDepartmentId String
+  operationDepartment   OperationDepartment @relation(fields: [operationDepartmentId], references: [id])
+  stageDefinitionId     String
+  stageDefinition       StageDefinition     @relation(fields: [stageDefinitionId], references: [id])
+  baselineStart         DateTime
+  baselineDue           DateTime
+  plannedStart          DateTime
+  plannedDue            DateTime
+  actualStart           DateTime?
+  completedAt           DateTime?
+  isCurrent             Boolean             @default(false)
+  dateChanges           StageDateChange[]
+  alerts                Alert[]
+
+  @@unique([operationDepartmentId, stageDefinitionId])
+}
+
+model StageDateChange {
+  id          String                  @id @default(cuid())
+  progressId  String
+  progress    DepartmentStageProgress @relation(fields: [progressId], references: [id])
+  field       String
+  oldDate     DateTime
+  newDate     DateTime
+  reason      String
+  createdById String
+  createdBy   User                    @relation("DateChangeAuthor", fields: [createdById], references: [id])
+  seenAt      DateTime?
+  createdAt   DateTime                @default(now())
+
+  @@index([progressId])
+  @@index([seenAt])
+}
+
+model Alert {
+  id         String                  @id @default(cuid())
+  progressId String
+  progress   DepartmentStageProgress @relation(fields: [progressId], references: [id])
+  type       String
+  audience   String
+  isDeleted  Boolean                 @default(false)
+  deletedAt  DateTime?
+  resolvedAt DateTime?
+  createdAt  DateTime                @default(now())
+
+  @@unique([progressId, type])
+  @@index([audience, isDeleted, resolvedAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation("AuditActor", fields: [actorId], references: [id])
+  action     String
+  entity     String
+  entityId   String?
+  summaryAr  String
+  summaryEn  String
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+}

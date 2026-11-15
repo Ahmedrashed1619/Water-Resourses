@@ -1,0 +1,16 @@
+erDiagram
+  sectors ||--o{ departments : oversees
+  departments ||--o{ users : accounts
+  departments ||--o{ operation_departments : assigned
+  operation_types ||--o{ stage_definitions : defines
+  operation_types ||--o{ operations : classifies
+  users ||--o{ operations : creates
+  operations ||--o{ operation_departments : reaches
+  operation_departments ||--o{ financial_adjustments : records
+  operation_departments ||--o{ department_stage_progress : tracks
+  stage_definitions ||--o{ department_stage_progress : applies
+  department_stage_progress ||--o{ stage_date_changes : revises
+  department_stage_progress ||--o{ alerts : raises
+  users ||--o{ financial_adjustments : writes
+  users ||--o{ stage_date_changes : explains
+  users ||--o{ audit_logs : traces
