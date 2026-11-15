@@ -29,31 +29,35 @@ function num(value: FormDataEntryValue | null) {
 
 export async function loginAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
   const locale = await getLocale();
-  const email = String(formData.get("email") || "").trim().toLowerCase();
-  const password = String(formData.get("password") || "");
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user || !user.isActive || !bcrypt.compareSync(password, user.passwordHash)) {
-    return { ok: false, message: dict(locale).errors.invalidLogin };
+  try {
+    const email = String(formData.get("email") || "").trim().toLowerCase();
+    const password = String(formData.get("password") || "");
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user || !user.isActive || !bcrypt.compareSync(password, user.passwordHash)) {
+      return { ok: false, message: dict(locale).errors.invalidLogin };
+    }
+    const token = await signSession({ sub: user.id, role: user.role, departmentId: user.departmentId });
+    const jar = await cookies();
+    jar.set(SESSION_COOKIE, token, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 60 * 60 * 12,
+    });
+    await prisma.auditLog.create({
+      data: {
+        actorId: user.id,
+        action: "LOGIN",
+        entity: "User",
+        entityId: user.id,
+        summaryAr: "تسجيل دخول",
+        summaryEn: "Signed in",
+      },
+    });
+  } catch (error) {
+    return fail(locale, error);
   }
-  const token = await signSession({ sub: user.id, role: user.role, departmentId: user.departmentId });
-  const jar = await cookies();
-  jar.set(SESSION_COOKIE, token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 60 * 60 * 12,
-  });
-  await prisma.auditLog.create({
-    data: {
-      actorId: user.id,
-      action: "LOGIN",
-      entity: "User",
-      entityId: user.id,
-      summaryAr: "تسجيل دخول",
-      summaryEn: "Signed in",
-    },
-  });
   redirect("/");
 }
 

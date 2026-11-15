@@ -223,16 +223,31 @@ npm install
 copy .env.example .env
 # على Linux / macOS: cp .env.example .env
 
-# 4) إنشاء قاعدة البيانات وزرع البيانات التجريبية
-npx prisma db push
-npm run db:seed
-# أو دفعة واحدة: npm run db:setup
+# 4) أنشئ قاعدة PostgreSQL (Neon مجانًا) والصق DATABASE_URL في .env
+# 5) إنشاء الجداول وزرع البيانات التجريبية
+npm run db:setup
 
-# 5) تشغيل وضع التطوير
+# 6) تشغيل وضع التطوير
 npm run dev
 ```
 
 افتح المتصفح على: [http://localhost:3000](http://localhost:3000)
+
+#### النشر على Vercel | Deploy on Vercel
+
+الخطأ `POST /login 500` يظهر لأن SQLite لا يعمل على Vercel. الحل:
+
+1. أنشئ مشروعًا على [Neon](https://console.neon.tech) وانسخ Connection string (يفضّل pooled).
+2. في Vercel → Project → Settings → Environment Variables أضف:
+   - `DATABASE_URL` = رابط Neon
+   - `AUTH_SECRET` = سلسلة عشوائية طويلة
+3. ادفع الكود ثم من جهازك مرة واحدة (بنفس `DATABASE_URL`):
+   ```bash
+   npm run db:setup
+   ```
+4. Redeploy من Vercel بعد ضبط المتغيرات.
+
+SQLite `file:./dev.db` does not work on Vercel serverless. Use PostgreSQL (Neon), set `DATABASE_URL` + `AUTH_SECRET` in Vercel, run `npm run db:setup` once against that database, then redeploy.
 
 للإنتاج محليًا:
 
@@ -320,11 +335,14 @@ Operio@2026
 
 ## 12. قاعدة البيانات | Database
 
-### التشغيل المحلي | Local runtime
+### التشغيل وVercel | Runtime & Vercel
 
-- المزود: **SQLite**
-- الملف: `prisma/dev.db` (بعد `db push` / seed)
-- النموذج: `prisma/schema.prisma`
+- المزود: **PostgreSQL** (مطلوب على Vercel؛ ملفات SQLite لا تعمل على Serverless)
+- Provider: **PostgreSQL** (required on Vercel; SQLite files do not work on serverless)
+- النموذج / schema: `prisma/schema.prisma`
+- استضافة مجانية مقترحة / suggested host: [Neon](https://console.neon.tech)
+- على Vercel أضف متغيرات البيئة: `DATABASE_URL` و `AUTH_SECRET` ثم نفّذ `npm run db:setup` مرة واحدة ضد نفس قاعدة البيانات
+- On Vercel set `DATABASE_URL` and `AUTH_SECRET`, then run `npm run db:setup` once against that same database
 
 ### الجداول الرئيسية | Main models
 
