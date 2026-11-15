@@ -326,6 +326,56 @@ export async function getDashboard(user: CurrentUser): Promise<DashboardData> {
       status: worstStatus(bucket.statuses),
     };
   });
+
+  const statusCount = new Map<StageVisualStatus, number>();
+  for (const item of items) statusCount.set(item.status, (statusCount.get(item.status) ?? 0) + 1);
+  const statusMeta: { key: StageVisualStatus; labelAr: string; labelEn: string; tone: string }[] = [
+    { key: "overdue", labelAr: "متأخر", labelEn: "Overdue", tone: "danger" },
+    { key: "due_soon", labelAr: "قرب الموعد", labelEn: "Due soon", tone: "warning" },
+    { key: "halfway", labelAr: "منتصف المدة", labelEn: "Halfway", tone: "primary" },
+    { key: "on_track", labelAr: "على المسار", labelEn: "On track", tone: "success" },
+    { key: "pending", labelAr: "لم تبدأ", labelEn: "Pending", tone: "muted" },
+    { key: "completed", labelAr: "مكتمل", labelEn: "Completed", tone: "success" },
+  ];
+  const typeCount = new Map<string, { labelAr: string; labelEn: string; value: number }>();
+  for (const item of items) {
+    const key = `${item.typeAr}||${item.typeEn}`;
+    const prev = typeCount.get(key);
+    if (prev) prev.value += 1;
+    else typeCount.set(key, { labelAr: item.typeAr, labelEn: item.typeEn, value: 1 });
+  }
+  const alertCount = new Map<AlertType, number>();
+  for (const alert of alerts) alertCount.set(alert.type, (alertCount.get(alert.type) ?? 0) + 1);
+  const alertMeta: { key: AlertType; labelAr: string; labelEn: string; tone: string }[] = [
+    { key: "OVERDUE", labelAr: "تجاوز", labelEn: "Overdue", tone: "danger" },
+    { key: "DUE_SOON", labelAr: "قبل 5 أيام", labelEn: "Due soon", tone: "warning" },
+    { key: "HALFWAY", labelAr: "منتصف المدة", labelEn: "Halfway", tone: "primary" },
+  ];
+  const chartDepartments = (directory.length
+    ? directory
+    : [...byDepartment.entries()].map(([id, bucket]) => {
+        const assignment = operations.flatMap((op) => op.assignments).find((row) => row.departmentId === id);
+        return {
+          id,
+          code: assignment?.department.code ?? id,
+          nameAr: assignment?.department.nameAr ?? id,
+          nameEn: assignment?.department.nameEn ?? id,
+          operations: bucket.operations,
+          overdueStages: bucket.overdueStages,
+          status: worstStatus(bucket.statuses),
+        } satisfies DeptStat;
+      }))
+    .filter((item) => item.operations > 0 || item.overdueStages > 0)
+    .sort((a, b) => b.overdueStages - a.overdueStages || b.operations - a.operations)
+    .slice(0, 8)
+    .map((item) => ({
+      id: item.id,
+      labelAr: item.nameAr,
+      labelEn: item.nameEn,
+      value: item.operations,
+      secondary: item.overdueStages,
+    }));
+
   return {
     kpis: {
       activeOperations: items.filter((item) => item.status !== "completed").length,
@@ -337,6 +387,22 @@ export async function getDashboard(user: CurrentUser): Promise<DashboardData> {
     alerts: alerts.slice(0, 6),
     operations: items.slice(0, 6),
     departments: directory,
+    charts: {
+      status: statusMeta
+        .map((meta) => ({ ...meta, value: statusCount.get(meta.key) ?? 0 }))
+        .filter((item) => item.value > 0),
+      types: [...typeCount.entries()].map(([key, item], index) => ({
+        key,
+        labelAr: item.labelAr,
+        labelEn: item.labelEn,
+        value: item.value,
+        tone: ["primary", "gold", "success", "warning"][index % 4],
+      })),
+      alerts: alertMeta
+        .map((meta) => ({ ...meta, value: alertCount.get(meta.key) ?? 0 }))
+        .filter((item) => item.value > 0),
+      departments: chartDepartments,
+    },
   };
 }
 

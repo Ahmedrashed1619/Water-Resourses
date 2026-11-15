@@ -117,6 +117,9 @@ export type DeptStat = {
   status: StageVisualStatus | "idle";
 };
 
+export type ChartSlice = { key: string; labelAr: string; labelEn: string; value: number; tone: string };
+export type ChartBar = { id: string; labelAr: string; labelEn: string; value: number; secondary: number };
+
 export type DashboardData = {
   kpis: {
     activeOperations: number;
@@ -128,4 +131,10 @@ export type DashboardData = {
   alerts: AlertRow[];
   operations: OperationListItem[];
   departments: DeptStat[];
+  charts: {
+    status: ChartSlice[];
+    types: ChartSlice[];
+    alerts: ChartSlice[];
+    departments: ChartBar[];
+  };
 };

@@ -9,21 +9,25 @@ import { Tip } from "./tip";
 
 export function PageHeader({ kicker, title, lede, children }: { kicker?: string; title: string; lede?: string; children?: ReactNode }) {
   return (
-    <header className="between">
-      <div>
+    <header className="between page-header">
+      <div className="page-header-copy">
         {kicker ? <p className="kicker">{kicker}</p> : null}
         <h1>{title}</h1>
         {lede ? <p className="lede">{lede}</p> : null}
       </div>
-      {children ? <div className="row">{children}</div> : null}
+      {children ? <div className="row page-header-actions">{children}</div> : null}
     </header>
   );
 }
 
 export function StatusChip({ locale, status }: { locale: Locale; status: StageVisualStatus | "idle" }) {
+  const label = statusLabel(locale, status);
+  const hint = statusHint(locale, status);
   return (
-    <Tip text={statusHint(locale, status)}>
-      <span className={`chip ${status}`}>{statusLabel(locale, status)}</span>
+    <Tip text={hint}>
+      <span className={`chip ${status}`} tabIndex={0} aria-label={`${label}. ${hint}`}>
+        {label}
+      </span>
     </Tip>
   );
 }
