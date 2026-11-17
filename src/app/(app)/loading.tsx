@@ -1,8 +1,5 @@
-"use client";
-
-import { useI18n } from "@/i18n/context";
+import { PageLoading } from "@/components/loading-ui";
 
 export default function Loading() {
-  const { t } = useI18n();
-  return <div className="card card-pad"><p className="muted">{t("جارٍ التحميل", "Loading")}</p></div>;
+  return <PageLoading mode="table" />;
 }

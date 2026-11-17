@@ -62,8 +62,8 @@ export function OperationWorkspace({
 
   return (
     <div className="stack">
-      <header className="between">
-        <div>
+      <header className="between page-header">
+        <div className="page-header-copy">
           <p className="kicker">{name(operation.typeAr, operation.typeEn)}</p>
           <h1>{name(operation.nameAr, operation.nameEn)}</h1>
           <p className="lede">
@@ -71,7 +71,9 @@ export function OperationWorkspace({
             {scopedDepartmentId ? ` · ${t("عرض مقصور على إدارة واحدة", "Scoped to one department")}` : ""}
           </p>
         </div>
-        <StatusChip locale={locale} status={operation.status} />
+        <div className="op-header-status">
+          <StatusChip locale={locale} status={operation.status} />
+        </div>
       </header>
       {!scopedDepartmentId && isDepartment ? (
         <p className="banner">
@@ -321,7 +323,7 @@ function StageCard({
         <div><span>{t("إنهاء فعلي", "Completed")}</span><b className="num">{formatDate(stage.completedAt)}</b></div>
       </div>
       {canExecuteStages && !stage.completedAt ? (
-        <div className="grid-2">
+        <div className="stack stage-actions">
           <form action={focusAction} className="row">
             <input type="hidden" name="progressId" value={stage.progressId} />
             <input className="input" type="date" name="actualStart" defaultValue={stage.actualStart ?? today} />

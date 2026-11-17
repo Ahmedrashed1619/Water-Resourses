@@ -15,7 +15,7 @@ export function PageHeader({ kicker, title, lede, children }: { kicker?: string;
         <h1>{title}</h1>
         {lede ? <p className="lede">{lede}</p> : null}
       </div>
-      {children ? <div className="row page-header-actions">{children}</div> : null}
+      {children ? <div className="row page-header-actions page-cta">{children}</div> : null}
     </header>
   );
 }

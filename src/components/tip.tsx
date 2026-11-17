@@ -11,6 +11,22 @@ export function Tip({ text, children, className }: { text: string; children: Rea
   const [ready, setReady] = useState(false);
   const host = useRef<HTMLSpanElement>(null);
   const tip = useRef<HTMLSpanElement>(null);
+  const suppressUntil = useRef(0);
+
+  function show() {
+    if (Date.now() < suppressUntil.current) return;
+    setOpen(true);
+  }
+
+  function hide() {
+    setOpen(false);
+    setPlace(null);
+  }
+
+  function dismiss() {
+    suppressUntil.current = Date.now() + 400;
+    hide();
+  }
 
   useLayoutEffect(() => setReady(true), []);
 
@@ -37,14 +53,36 @@ export function Tip({ text, children, className }: { text: string; children: Rea
     };
   }, [open, text]);
 
+  useLayoutEffect(() => {
+    if (!open) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") hide();
+    }
+    function onPointerDown(event: PointerEvent) {
+      if (host.current?.contains(event.target as Node)) return;
+      hide();
+    }
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onPointerDown, true);
+    };
+  }, [open]);
+
   return (
     <span
       ref={host}
       className={className ? `tip-host ${className}` : "tip-host"}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => { setOpen(false); setPlace(null); }}
-      onFocus={() => setOpen(true)}
-      onBlur={() => { setOpen(false); setPlace(null); }}
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      onFocus={show}
+      onBlur={(event) => {
+        if (host.current?.contains(event.relatedTarget as Node)) return;
+        hide();
+      }}
+      onPointerDown={dismiss}
+      onClick={dismiss}
     >
       {children}
       {ready && open

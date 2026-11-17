@@ -36,14 +36,16 @@ export function FilterBar({
           </label>
         ),
       )}
-      <button className="btn btn-primary" type="submit">
-        {t("تصفية", "Filter")}
-      </button>
-      {hasActive ? (
-        <button className="btn btn-ghost" type="button" onClick={() => router.push(action)}>
-          {t("مسح الفلاتر", "Clear filters")}
+      <div className="filters-actions">
+        <button className="btn btn-primary" type="submit">
+          {t("تصفية", "Filter")}
         </button>
-      ) : null}
+        {hasActive ? (
+          <button className="btn btn-ghost" type="button" onClick={() => router.push(action)}>
+            {t("مسح الفلاتر", "Clear filters")}
+          </button>
+        ) : null}
+      </div>
     </form>
   );
 }
