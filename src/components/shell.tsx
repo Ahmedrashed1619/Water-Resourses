@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useI18n } from "@/i18n/context";
-import { can, type Permission } from "@/lib/permissions";
+import { can, isDepartmentRole, type Permission } from "@/lib/permissions";
 import { roleLabel } from "@/lib/labels";
 import { logoutAction } from "@/server/actions";
 import { Tip } from "./tip";
@@ -17,16 +17,18 @@ type Item = {
   permission?: Permission;
   anyOf?: Permission[];
   badge?: "alerts" | "revisions" | "needs";
+  /** Hide from department-side nav even if a grant exists. */
+  sectorOnly?: boolean;
 };
 
 const ITEMS: Item[] = [
   { href: "/", key: "dashboard", icon: "M4 4h6v6H4zm10 0h6v6h-6zM4 14h6v6H4zm10 0h6v6h-6z" },
   { href: "/operations", key: "operations", icon: "M4 7h16M4 12h16M4 17h10" },
-  { href: "/departments", key: "departments", icon: "M4 18V8l8-4 8 4v10M9 18v-5h6v5", permission: "departments.view" },
+  { href: "/departments", key: "departments", icon: "M4 18V8l8-4 8 4v10M9 18v-5h6v5", permission: "departments.view", sectorOnly: true },
   { href: "/finance", key: "finance", icon: "M5 8h14v9H5zM8 8V6h8v2M8 12h4", permission: "finance.manage" },
   { href: "/alerts", key: "alerts", icon: "M12 4a5 5 0 0 1 5 5v3l1.5 2.5h-13L7 12V9a5 5 0 0 1 5-5zM10 18a2 2 0 0 0 4 0", badge: "alerts" },
-  { href: "/reports", key: "reports", icon: "M7 3h7l5 5v13H7zM14 3v5h5", anyOf: ["reports.export", "reports.print", "reports.overrun"] },
-  { href: "/revisions", key: "revisions", icon: "M5 12a7 7 0 1 0 2-4.9M5 4v4h4", permission: "revisions.view", badge: "revisions" },
+  { href: "/reports", key: "reports", icon: "M7 3h7l5 5v13H7zM14 3v5h5", anyOf: ["reports.export", "reports.print", "reports.overrun", "reports.overrun.download"], sectorOnly: true },
+  { href: "/revisions", key: "revisions", icon: "M5 12a7 7 0 1 0 2-4.9M5 4v4h4", permission: "revisions.view", badge: "revisions", sectorOnly: true },
   { href: "/needs", key: "needs", icon: "M12 3v18M5 10h14M7 16h10", anyOf: ["needs.view", "needs.create", "needs.respond"], badge: "needs" },
   { href: "/users", key: "users", icon: "M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM4 19a5 5 0 0 1 10 0M17 11a2.5 2.5 0 1 0 0-5M16 19a4.5 4.5 0 0 1 4-4", permission: "users.manage" },
   { href: "/settings", key: "settings", icon: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM4 12h3M17 12h3M12 4v3M12 17v3" },
@@ -59,6 +61,7 @@ export function Shell({
   const [wide, setWide] = useState(true);
   const actor = { role, tasks };
   const items = ITEMS.filter((item) => {
+    if (item.sectorOnly && isDepartmentRole(role)) return false;
     if (item.anyOf?.length) return item.anyOf.some((key) => can(actor, key));
     if (item.permission) return can(actor, item.permission);
     return true;

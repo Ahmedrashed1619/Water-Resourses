@@ -6,7 +6,7 @@ import { useI18n } from "@/i18n/context";
 import { diffDays } from "@/lib/dates";
 import { daysPhrase, formatDate, formatStamp } from "@/lib/format";
 import { formatMoney } from "@/lib/money";
-import { fieldLabel, statusLabel } from "@/lib/labels";
+import { changeKindLabel, fieldLabel, statusLabel } from "@/lib/labels";
 import { warnPublicationToTechnicalGap, warnTechnicalOpeningPostponement } from "@/lib/needs-rules";
 import type { AssignmentVM, OperationDetail, StageVM } from "@/lib/view";
 import {
@@ -21,6 +21,7 @@ import {
   updateDatesAction,
   updateWindowAction,
 } from "@/server/actions";
+import { AddStagePanel } from "./add-stage-panel";
 import { FormMessage, SubmitButton } from "./form-bits";
 import { Modal, useCloseWhenSaved } from "./modal";
 import { StageTrack, StatusChip } from "./ui";
@@ -33,6 +34,8 @@ export function OperationWorkspace({
   canManage,
   canExecuteStages = false,
   canEditDates = false,
+  canAddStage = false,
+  canCreateStageType = false,
   isDepartment,
   today,
   scopedDepartmentId = null,
@@ -42,6 +45,8 @@ export function OperationWorkspace({
   canManage: boolean;
   canExecuteStages?: boolean;
   canEditDates?: boolean;
+  canAddStage?: boolean;
+  canCreateStageType?: boolean;
   isDepartment: boolean;
   today: string;
   scopedDepartmentId?: string | null;
@@ -103,6 +108,8 @@ export function OperationWorkspace({
           canManage={canManage}
           canExecuteStages={canExecuteStages}
           canEditDates={canEditDates}
+          canAddStage={canAddStage}
+          canCreateStageType={canCreateStageType}
           isDepartment={isDepartment}
           today={today}
         />
@@ -125,6 +132,8 @@ function AssignmentCard({
   canManage,
   canExecuteStages,
   canEditDates,
+  canAddStage,
+  canCreateStageType,
   isDepartment,
   today,
 }: {
@@ -132,6 +141,8 @@ function AssignmentCard({
   canManage: boolean;
   canExecuteStages: boolean;
   canEditDates: boolean;
+  canAddStage: boolean;
+  canCreateStageType: boolean;
   isDepartment: boolean;
   today: string;
 }) {
@@ -230,6 +241,9 @@ function AssignmentCard({
           />
         ))}
       </div>
+      {isDepartment && (canAddStage || canCreateStageType) ? (
+        <AddStagePanel assignment={assignment} canAddStage={canAddStage} canCreateStageType={canCreateStageType} today={today} />
+      ) : null}
       {canManage ? (
         <form action={removeAction} className="row">
           <input type="hidden" name="id" value={assignment.id} />
@@ -293,6 +307,7 @@ function StageCard({
       <div className="between">
         <div className="row">
           <b>{name(stage.nameAr, stage.nameEn)}</b>
+          {stage.isCustom ? <span className="chip gold">{t("مرحلة خاصة بالإدارة", "Department stage")}</span> : null}
           <span className={`chip ${stage.status}`}>{statusLabel(locale, stage.status)}</span>
           {stage.isCurrent ? <span className="chip gold">{t("المرحلة الحالية", "Current stage")}</span> : null}
           {stage.changed ? <span className="chip gold">{t("موعد معدّل", "Date revised")}</span> : null}
@@ -352,10 +367,10 @@ function StageCard({
               <tbody>
                 {stage.changes.map((change) => (
                   <tr key={change.id}>
-                    <td>{fieldLabel(locale, change.field)}</td>
+                    <td>{changeKindLabel(locale, change.kind)} · {fieldLabel(locale, change.field)}</td>
                     <td className="num">{formatDate(change.oldDate)}</td>
                     <td className="num">{formatDate(change.newDate)}</td>
-                    <td>{change.reason}<br /><span className="fine">{name(change.actorAr, change.actorEn)} · {formatStamp(change.createdAt, locale)}</span></td>
+                    <td>{change.reason || "—"}<br /><span className="fine">{name(change.actorAr, change.actorEn)} · {formatStamp(change.createdAt, locale)}</span></td>
                     <td>{change.seenAt ? formatStamp(change.seenAt, locale) : t("بانتظار اطلاع القطاع", "Waiting for the Sector")}</td>
                   </tr>
                 ))}

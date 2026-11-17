@@ -2,10 +2,12 @@ import type { AlertType, StageVisualStatus } from "./rules";
 
 export type StageChangeVM = {
   id: string;
+  kind?: string;
   field: string;
-  oldDate: string;
-  newDate: string;
+  oldDate: string | null;
+  newDate: string | null;
   reason: string;
+  note?: string | null;
   actorAr: string;
   actorEn: string;
   seenAt: string | null;
@@ -18,6 +20,8 @@ export type StageVM = {
   nameAr: string;
   nameEn: string;
   sortOrder: number;
+  /** true when the stage is a department-scoped custom stage */
+  isCustom?: boolean;
   baselineStart: string;
   baselineDue: string;
   plannedStart: string;
@@ -50,8 +54,12 @@ export type FundingTrancheVM = {
   note: string | null;
 };
 
+export type AvailableStageVM = { id: string; nameAr: string; nameEn: string; isCustom: boolean };
+
 export type AssignmentVM = {
   id: string;
+  /** stages the department can still add (system + its own custom); filled for department users only */
+  availableStages?: AvailableStageVM[];
   departmentId: string;
   departmentAr: string;
   departmentEn: string;
@@ -66,6 +74,8 @@ export type AssignmentVM = {
   fundingTranches: FundingTrancheVM[];
   stages: StageVM[];
   status: StageVisualStatus;
+  /** v2 derived status per operation×department */
+  derivedStatus: import("./operation-status").DerivedOpStatus;
 };
 
 export type OperationDetail = {
@@ -91,10 +101,12 @@ export type OperationListItem = {
   typeEn: string;
   approvalDate: string;
   status: StageVisualStatus;
+  derivedStatus: import("./operation-status").DerivedOpStatus;
   departmentCount: number;
   amount: string;
   departmentsAr: string;
   departmentsEn: string;
+  daysLate?: number;
 };
 
 export type AlertRow = {
@@ -116,6 +128,14 @@ export type AlertRow = {
   approvalDate: string;
   daysLate: number;
   daysRemaining: number;
+};
+
+export type DeletedAlertRow = AlertRow & {
+  deletedAt: string | null;
+  deletedById: string | null;
+  deletedByAr: string | null;
+  deletedByEn: string | null;
+  createdAt: string;
 };
 
 export type DeptStat = {

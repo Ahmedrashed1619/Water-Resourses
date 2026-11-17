@@ -9,8 +9,10 @@ import { roleHint, roleLabel, statusHint } from "@/lib/labels";
 import { getLocale } from "@/lib/locale";
 import { getPageSize } from "@/lib/page-size";
 import { pageOf } from "@/lib/paging";
+import { BoundForm, SubmitButton } from "@/components/form-bits";
 import { assignableTaskKeys, can, canSeeUserAccount, creatableRoles, grantsOf, isDepartmentRole, parseTasks, rankOf } from "@/lib/permissions";
 import { listDirectory, listUsers } from "@/lib/queries";
+import { restoreUserAction } from "@/server/actions";
 import { locName, tx } from "@/lib/text";
 
 export default async function UsersPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
@@ -19,8 +21,13 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
   const locale = await getLocale();
   const query = await searchParams;
   const size = await getPageSize();
-  const [usersRaw, departments] = await Promise.all([listUsers(user), listDirectory()]);
+  const [usersRaw, deletedRaw, departments] = await Promise.all([
+    listUsers(user),
+    listUsers(user, { includeDeleted: true }),
+    listDirectory(),
+  ]);
   const users = usersRaw.filter((account) => canSeeUserAccount(user, account));
+  const deletedUsers = deletedRaw.filter((account) => canSeeUserAccount(user, account));
   const view = pageOf(users, query.page, size);
   const taskOptions = assignableTaskKeys(user);
   return (
@@ -90,6 +97,44 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
         </table>
       </div>
       <Pager locale={locale} page={view.page} pages={view.pages} total={view.total} from={view.from} to={view.to} size={view.size} base="/users" params={{}} />
+
+      <section className="card card-pad stack">
+        <h2>{tx(locale, "سجل المحذوفات", "Deleted users log")}</h2>
+        {deletedUsers.length === 0 ? (
+          <p className="empty">{tx(locale, "لا حسابات محذوفة.", "No deleted accounts.")}</p>
+        ) : (
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>{tx(locale, "الاسم", "Name")}</th>
+                  <th>{tx(locale, "الدور", "Role")}</th>
+                  <th>{tx(locale, "حُذف", "Deleted")}</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {deletedUsers.map((account) => (
+                  <tr key={account.id}>
+                    <td>
+                      {locName(locale, account.nameAr, account.nameEn)}
+                      <div className="fine">{account.email}</div>
+                    </td>
+                    <td>{roleLabel(locale, account.role)}</td>
+                    <td className="num">{account.deletedAt ? account.deletedAt.toISOString().slice(0, 10) : "—"}</td>
+                    <td>
+                      <BoundForm action={restoreUserAction}>
+                        <input type="hidden" name="id" value={account.id} />
+                        <SubmitButton label={tx(locale, "استرجاع", "Restore")} pendingLabel={tx(locale, "جارٍ الحفظ", "Saving")} />
+                      </BoundForm>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </>
   );
 }

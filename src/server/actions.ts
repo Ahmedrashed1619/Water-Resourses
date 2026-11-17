@@ -1,6 +1,7 @@
 "use server";
 
 import { cookies } from "next/headers";
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import bcrypt from "bcryptjs";
 import { dict } from "@/i18n/dictionaries";
@@ -33,7 +34,7 @@ export async function loginAction(_prev: ActionResult | null, formData: FormData
     const email = String(formData.get("email") || "").trim().toLowerCase();
     const password = String(formData.get("password") || "");
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user || !user.isActive || !bcrypt.compareSync(password, user.passwordHash)) {
+    if (!user || !user.isActive || user.deletedAt || !bcrypt.compareSync(password, user.passwordHash)) {
       return { ok: false, message: dict(locale).errors.invalidLogin };
     }
     const token = await signSession({ sub: user.id, role: user.role, departmentId: user.departmentId });
@@ -182,6 +183,67 @@ export async function updateDatesAction(_prev: ActionResult | null, formData: Fo
   return { ok: true, message: locale === "ar" ? "حُفظ التعديل وظهر للقطاع مع السبب" : "The revision was saved for the Sector, with its reason" };
 }
 
+export async function createDepartmentStageTypeAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const locale = await getLocale();
+  try {
+    if (!can(user, "stages.createType")) return { ok: false, message: dict(locale).errors.forbidden };
+    const operationDepartmentId = String(formData.get("operationDepartmentId") || "");
+    const plannedStart = String(formData.get("plannedStart") || "");
+    const plannedDue = String(formData.get("plannedDue") || "");
+    const nameAr = String(formData.get("nameAr") || "");
+    const nameEn = String(formData.get("nameEn") || "");
+    // Start and finish are mandatory; validate before anything is created.
+    if (!plannedStart || !plannedDue) throw new ActionError("stageDatesRequired");
+    let operationTypeId = String(formData.get("operationTypeId") || "");
+    if (operationDepartmentId) {
+      if (!can(user, "stages.add")) throw new ActionError("forbidden");
+      const assignment = await prisma.operationDepartment.findFirst({
+        where: { id: operationDepartmentId, isDeleted: false, operation: { isDeleted: false } },
+        include: { operation: { select: { operationTypeId: true } } },
+      });
+      if (!assignment) throw new ActionError("notFound");
+      if (assignment.departmentId !== user.departmentId) throw new ActionError("forbidden");
+      operationTypeId = assignment.operation.operationTypeId;
+    }
+    const stageDefinitionId = await services.createDepartmentStageType(user, { operationTypeId, nameAr, nameEn });
+    // Optionally attach the new stage to the assignment in the same step (needs stages.add too).
+    if (operationDepartmentId) {
+      await services.addStageToAssignment(user, {
+        operationDepartmentId,
+        stageDefinitionId,
+        plannedStart,
+        plannedDue,
+        note: String(formData.get("note") || ""),
+      });
+      await services.syncAlerts();
+    }
+  } catch (error) {
+    return fail(locale, error);
+  }
+  revalidatePath("/operations");
+  return { ok: true, message: locale === "ar" ? "أُنشئ نوع المرحلة وأُضيف إلى العملية" : "Stage type created and added to the operation" };
+}
+
+export async function addStageToAssignmentAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const locale = await getLocale();
+  try {
+    await services.addStageToAssignment(user, {
+      operationDepartmentId: String(formData.get("operationDepartmentId") || ""),
+      stageDefinitionId: String(formData.get("stageDefinitionId") || ""),
+      plannedStart: String(formData.get("plannedStart") || ""),
+      plannedDue: String(formData.get("plannedDue") || ""),
+      note: String(formData.get("note") || ""),
+    });
+    await services.syncAlerts();
+  } catch (error) {
+    return fail(locale, error);
+  }
+  revalidatePath("/operations");
+  return { ok: true, message: locale === "ar" ? "أُضيفت المرحلة وظهرت للقطاع" : "Stage added and visible to the Sector" };
+}
+
 export async function focusStageAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
   const locale = await getLocale();
@@ -217,9 +279,44 @@ export async function reopenStageAction(_prev: ActionResult | null, formData: Fo
   return { ok: true, message: locale === "ar" ? "أُعيد فتح المرحلة" : "Stage reopened" };
 }
 
-export async function deleteAlertAction(formData: FormData): Promise<void> {
+export async function deleteAlertAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
   const user = await requireUser();
-  await services.deleteAlert(user, String(formData.get("id") || ""));
+  const locale = await getLocale();
+  try {
+    await services.deleteAlert(user, String(formData.get("id") || ""));
+  } catch (error) {
+    return fail(locale, error);
+  }
+  revalidatePath("/alerts");
+  return { ok: true, message: locale === "ar" ? "نُقل التنبيه إلى سجل المحذوفات" : "Alert moved to the deleted log" };
+}
+
+export async function deleteAlertsBulkAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const locale = await getLocale();
+  try {
+    const ids = formData.getAll("ids").map(String);
+    const count = await services.deleteAlertsBulk(user, ids);
+    revalidatePath("/alerts");
+    return {
+      ok: true,
+      message: locale === "ar" ? `نُقل ${count} تنبيه إلى سجل المحذوفات` : `${count} alert(s) moved to the deleted log`,
+    };
+  } catch (error) {
+    return fail(locale, error);
+  }
+}
+
+export async function restoreAlertAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const locale = await getLocale();
+  try {
+    await services.restoreAlert(user, String(formData.get("id") || ""));
+  } catch (error) {
+    return fail(locale, error);
+  }
+  revalidatePath("/alerts");
+  return { ok: true, message: locale === "ar" ? "استُرجع التنبيه" : "Alert restored" };
 }
 
 export async function markRevisionsSeenAction(formData: FormData): Promise<void> {
@@ -422,5 +519,16 @@ export async function deleteUserAction(_prev: ActionResult | null, formData: For
   } catch (error) {
     return fail(locale, error);
   }
-  return { ok: true, message: locale === "ar" ? "أُوقف الحساب" : "Account deactivated" };
+  return { ok: true, message: locale === "ar" ? "حُذف الحساب" : "Account deleted" };
+}
+
+export async function restoreUserAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const locale = await getLocale();
+  try {
+    await services.restoreUserAccount(user, String(formData.get("id") || ""));
+  } catch (error) {
+    return fail(locale, error);
+  }
+  return { ok: true, message: locale === "ar" ? "استُرجع الحساب" : "Account restored" };
 }

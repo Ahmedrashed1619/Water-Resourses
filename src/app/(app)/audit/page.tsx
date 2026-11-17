@@ -17,11 +17,20 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
   const locale = await getLocale();
   const query = await searchParams;
   const size = await getPageSize();
-  const rows = await listAudit();
+  const rows = await listAudit(user);
   const view = pageOf(rows, query.page, size);
+  const scoped = !can(user, "users.manageAll");
   return (
     <>
-      <PageHeader kicker={tx(locale, "الأثر", "Trace")} title={tx(locale, "سجل النشاط", "Activity log")} lede={tx(locale, "من أنشأ عملية أو عدّل اعتمادًا أو أضاف مستخدمًا.", "Who created an operation, adjusted an approval, or added a user.")} />
+      <PageHeader
+        kicker={tx(locale, "الأثر", "Trace")}
+        title={tx(locale, "سجل النشاط", "Activity log")}
+        lede={
+          scoped
+            ? tx(locale, "نشاط موظفي القطاع وحسابك فقط — بدون إجراءات المشرف الأعلى.", "Sector employees' activity and your own — never the Super Admin's.")
+            : tx(locale, "من أنشأ عملية أو عدّل اعتمادًا أو أضاف مستخدمًا.", "Who created an operation, adjusted an approval, or added a user.")
+        }
+      />
       <div className="table-wrap">
         <table className="data">
           <thead>

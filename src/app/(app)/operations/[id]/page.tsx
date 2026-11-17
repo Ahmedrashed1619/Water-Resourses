@@ -25,6 +25,8 @@ export default async function OperationPage({
       canManage={can(user, "operations.manage")}
       canExecuteStages={can(user, "stages.execute") || can(user, "operations.manage")}
       canEditDates={can(user, "dates.edit") || can(user, "operations.manage")}
+      canAddStage={isDepartmentRole(user.role) && can(user, "stages.add")}
+      canCreateStageType={isDepartmentRole(user.role) && can(user, "stages.createType")}
       isDepartment={isDepartmentRole(user.role)}
       today={todayISO()}
       scopedDepartmentId={query.department ?? null}

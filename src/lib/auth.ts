@@ -18,7 +18,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
       where: { id: session.sub },
       include: { department: true },
     });
-    if (!user?.isActive) return null;
+    if (!user?.isActive || user.deletedAt) return null;
     return user;
   } catch {
     return null;

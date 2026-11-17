@@ -49,51 +49,53 @@ export default async function DashboardPage() {
         />
       </section>
 
-      {data.isSector ? (
-        <section className="card card-pad stack" aria-labelledby="overdue-panel">
-          <h2 id="overdue-panel">{tx(locale, "العمليات المتأخرة", "Overdue operations")}</h2>
-          <p className="note">{tx(locale, "عرض موحّد للتجاوز فقط، مجمّع حسب الإدارة ونوع العملية.", "Unified overdue-only view, grouped by department and operation type.")}</p>
-          {data.overdueGroups.length === 0 ? (
-            <p className="empty">{tx(locale, "لا تجاوزات مفتوحة.", "No open overruns.")}</p>
-          ) : (
-            <div className="stack">
-              {data.overdueGroups.map((group) => (
-                <div key={`${group.departmentId}-${group.typeAr}`} className="card card-pad stack" style={{ boxShadow: "none" }}>
-                  <div className="between">
-                    <b>{locName(locale, group.departmentAr, group.departmentEn)} · {locName(locale, group.typeAr, group.typeEn)}</b>
-                    <span className="chip overdue">{group.count}</span>
-                  </div>
-                  <ul className="dash-list">
-                    {group.items.map((item) => (
-                      <li key={`${item.operationId}-${item.daysLate}`}>
-                        <Link className="dash-list-link" href={`/operations/${item.operationId}?department=${group.departmentId}`}>
-                          <span>
-                            <b>{locName(locale, item.operationAr, item.operationEn)}</b>
-                            <small>{tx(locale, `متأخر +${item.daysLate}`, `Overdue +${item.daysLate}`)}</small>
-                          </span>
-                          <em className="num">+{item.daysLate}</em>
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      ) : (
-        <DashboardCharts
-          status={data.charts.status}
-          types={data.charts.types}
-          alerts={data.charts.alerts}
-          departments={data.charts.departments}
-        />
-      )}
+      <section className="stack" aria-labelledby="overdue-panel">
+        <div>
+          <h2 id="overdue-panel">{tx(locale, "العمليات المتأخرة", "Late operations")}</h2>
+          <p className="note">{tx(locale, "حالة العمليات الآن — نسب وأعداد حسب الحالة والنوع والإدارة.", "How bad is it right now — shares and counts by status, type, and department.")}</p>
+        </div>
+        {data.isSector && data.overdueGroups.length === 0 && data.charts.status.every((s) => s.value === 0) ? (
+          <p className="empty">{tx(locale, "لا توجد عمليات متأخرة.", "No late operations.")}</p>
+        ) : (
+          <DashboardCharts
+            status={data.charts.status}
+            types={data.charts.types}
+            alerts={data.charts.alerts}
+            departments={data.charts.departments}
+          />
+        )}
+        {data.isSector && data.overdueGroups.length > 0 ? (
+          <div className="stack">
+            {data.overdueGroups.map((group) => {
+              const latePct = Math.round((group.count / Math.max(1, group.count)) * 100);
+              return (
+                <Link
+                  key={`${group.departmentId}-${group.typeAr}`}
+                  href={`/operations?department=${group.departmentId}&status=LATE`}
+                  className="card card-pad between"
+                  style={{ textDecoration: "none" }}
+                >
+                  <span>
+                    <b>{locName(locale, group.typeAr, group.typeEn)}</b>
+                    <div className="fine">{locName(locale, group.departmentAr, group.departmentEn)}</div>
+                  </span>
+                  <span className="chip overdue">
+                    {group.count} · {latePct}%
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        ) : null}
+      </section>
 
       <section className="split">
         <div className="card card-pad stack">
           <div className="between">
-            <h2 id={alertsHeading}>{tx(locale, "أحدث التنبيهات", "Latest alerts")}</h2>
+            <div>
+              <h2 id={alertsHeading}>{tx(locale, "أحدث التنبيهات", "Latest alerts")}</h2>
+              <p className="note">{tx(locale, "عناصر تحتاج إجراء", "Items that need action")}</p>
+            </div>
             <Link className="link" href="/alerts">{tx(locale, "الكل", "All")}</Link>
           </div>
           {data.alerts.length === 0 ? (
@@ -115,6 +117,7 @@ export default async function DashboardPage() {
 
         <div className="card card-pad stack">
           <h2 id={feedHeading}>{tx(locale, "العمليات الحديثة", "Recent activity")}</h2>
+          <p className="note">{tx(locale, "آخر ما حدث", "What changed lately")}</p>
           {data.recentFeed.length === 0 ? (
             <p className="empty">{tx(locale, "لا أحداث حديثة.", "No recent activity.")}</p>
           ) : (

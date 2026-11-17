@@ -1,31 +1,36 @@
 import Link from "next/link";
 import { CreateOperationModal } from "@/components/create-operation-modal";
+import { FilterBar } from "@/components/filter-bar";
 import { Pager } from "@/components/pager";
-import { SelectBox } from "@/components/select-box";
 import { PageHeader, StatusChip } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
-import { statusLabel } from "@/lib/labels";
 import { formatMoney } from "@/lib/money";
 import { getLocale } from "@/lib/locale";
+import { derivedStatusLabel, statusFilterOptionsForRole } from "@/lib/operation-status";
 import { getPageSize } from "@/lib/page-size";
 import { pageOf } from "@/lib/paging";
 import { can, isDepartmentRole } from "@/lib/permissions";
 import { filterOptions, listDirectory, listOperations, listTypes } from "@/lib/queries";
 import { locName, tx } from "@/lib/text";
 
-export default async function OperationsPage({ searchParams }: { searchParams: Promise<{ q?: string; type?: string; department?: string; status?: string; new?: string; page?: string }> }) {
+export default async function OperationsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; type?: string; department?: string; status?: string; new?: string; page?: string }>;
+}) {
   const user = await requireUser();
   const locale = await getLocale();
   const query = await searchParams;
   const manage = can(user, "operations.manage");
+  const canReport = can(user, "operations.report") || can(user, "reports.export") || can(user, "reports.print");
   const [items, options, types, departments] = await Promise.all([
     listOperations(user, { q: query.q, typeId: query.type, departmentId: query.department, status: query.status }),
     filterOptions(),
     manage ? listTypes() : Promise.resolve([]),
     manage ? listDirectory() : Promise.resolve([]),
   ]);
-  const statuses = ["overdue", "due_soon", "halfway", "on_track", "pending", "completed"] as const;
+  const statusOptions = statusFilterOptionsForRole(user.role);
   const size = await getPageSize();
   const view = pageOf(items, query.page, size);
   const filtersActive = Boolean(query.q || query.type || query.department || query.status);
@@ -35,18 +40,27 @@ export default async function OperationsPage({ searchParams }: { searchParams: P
   if (query.department) exportQs.set("department", query.department);
   if (query.status) exportQs.set("status", query.status);
   const exportQuery = exportQs.toString() ? `?${exportQs}` : "";
+
   return (
     <>
-      <PageHeader kicker={tx(locale, "التعاقدات", "Contracts")} title={tx(locale, "العمليات", "Operations")} lede={tx(locale, "كل عملية لها نوع وتاريخ موافقة فنية، ويمكن أن تخدم أكثر من إدارة.", "Each operation has a type and a technical approval date, and can serve more than one department.")}>
+      <PageHeader
+        kicker={tx(locale, "التعاقدات", "Contracts")}
+        title={tx(locale, "العمليات", "Operations")}
+        lede={tx(
+          locale,
+          "فلترة بالاسم والنوع والإدارة والحالة. العرض الافتراضي للقطاع: المتأخرة والجارية.",
+          "Filter by name, type, department, and status. Sector default: late and in-progress.",
+        )}
+      >
         <div className="row">
-          {filtersActive && (can(user, "reports.export") || can(user, "reports.print")) ? (
+          {canReport ? (
             <>
-              {can(user, "reports.export") ? (
+              {(can(user, "reports.export") || can(user, "operations.report") || can(user, "reports.overrun.download")) ? (
                 <a className="btn btn-ghost" href={`/api/reports/operations-excel${exportQuery}`}>
                   {tx(locale, "تصدير Excel", "Export Excel")}
                 </a>
               ) : null}
-              {can(user, "reports.print") ? (
+              {can(user, "reports.print") || can(user, "operations.report") ? (
                 <Link className="btn btn-ghost" href={`/print/operations${exportQuery}`} target="_blank">
                   {tx(locale, "طباعة", "Print")}
                 </Link>
@@ -56,44 +70,81 @@ export default async function OperationsPage({ searchParams }: { searchParams: P
           {manage ? (
             <CreateOperationModal
               startOpen={query.new === "1"}
-              types={types.filter((type) => type.isActive).map((type) => ({
-                id: type.id,
-                code: type.code,
-                nameAr: type.nameAr,
-                nameEn: type.nameEn,
-                stages: type.stages.filter((stage) => stage.isActive).map((stage) => ({
-                  code: stage.code,
-                  nameAr: stage.nameAr,
-                  nameEn: stage.nameEn,
-                  sortOrder: stage.sortOrder,
-                  durationMonths: stage.durationMonths,
-                  durationDays: stage.durationDays,
-                  anchor: stage.anchor,
-                })),
+              types={types
+                .filter((type) => type.isActive && !type.deletedAt)
+                .map((type) => ({
+                  id: type.id,
+                  code: type.code,
+                  nameAr: type.nameAr,
+                  nameEn: type.nameEn,
+                  stages: type.stages
+                    .filter((stage) => stage.isActive && !stage.departmentId && !stage.deletedAt)
+                    .map((stage) => ({
+                      code: stage.code,
+                      nameAr: stage.nameAr,
+                      nameEn: stage.nameEn,
+                      sortOrder: stage.sortOrder,
+                      durationMonths: stage.durationMonths,
+                      durationDays: stage.durationDays,
+                      anchor: stage.anchor,
+                    })),
+                }))}
+              departments={departments.map((department) => ({
+                id: department.id,
+                code: department.code,
+                nameAr: department.nameAr,
+                nameEn: department.nameEn,
               }))}
-              departments={departments.map((department) => ({ id: department.id, code: department.code, nameAr: department.nameAr, nameEn: department.nameEn }))}
             />
           ) : null}
         </div>
       </PageHeader>
-      <form className="filters" action="/operations">
-        <label className="field"><span>{tx(locale, "بحث", "Search")}</span><input className="input" name="q" defaultValue={query.q ?? ""} /></label>
-        <label className="field">
-          <span>{tx(locale, "النوع", "Type")}</span>
-          <SelectBox name="type" defaultValue={query.type ?? ""} options={[{ value: "", label: tx(locale, "الكل", "All") }, ...options.types.map((type) => ({ value: type.id, label: locName(locale, type.nameAr, type.nameEn) }))]} />
-        </label>
-        {!isDepartmentRole(user.role) ? (
-          <label className="field">
-            <span>{tx(locale, "الإدارة", "Department")}</span>
-            <SelectBox name="department" defaultValue={query.department ?? ""} options={[{ value: "", label: tx(locale, "الكل", "All") }, ...options.departments.map((department) => ({ value: department.id, label: locName(locale, department.nameAr, department.nameEn) }))]} />
-          </label>
-        ) : null}
-        <label className="field">
-          <span>{tx(locale, "الحالة", "Status")}</span>
-          <SelectBox name="status" defaultValue={query.status ?? ""} options={[{ value: "", label: tx(locale, "الكل", "All") }, ...statuses.map((status) => ({ value: status, label: statusLabel(locale, status) }))]} />
-        </label>
-        <button className="btn btn-primary" type="submit">{tx(locale, "تصفية", "Filter")}</button>
-      </form>
+
+      <FilterBar
+        action="/operations"
+        values={{ q: query.q, type: query.type, department: query.department, status: query.status }}
+        fields={[
+          { kind: "text", name: "q", label: tx(locale, "بحث", "Search"), placeholder: tx(locale, "اسم العملية", "Operation name") },
+          {
+            kind: "select",
+            name: "type",
+            label: tx(locale, "النوع", "Type"),
+            options: [
+              { value: "", label: tx(locale, "الكل", "All") },
+              ...options.types.map((type) => ({ value: type.id, label: locName(locale, type.nameAr, type.nameEn) })),
+            ],
+          },
+          ...(!isDepartmentRole(user.role)
+            ? [
+                {
+                  kind: "select" as const,
+                  name: "department",
+                  label: tx(locale, "الإدارة", "Department"),
+                  options: [
+                    { value: "", label: tx(locale, "الكل", "All") },
+                    ...options.departments.map((department) => ({
+                      value: department.id,
+                      label: locName(locale, department.nameAr, department.nameEn),
+                    })),
+                  ],
+                },
+              ]
+            : []),
+          {
+            kind: "select",
+            name: "status",
+            label: tx(locale, "الحالة", "Status"),
+            options: [
+              { value: "", label: tx(locale, "الافتراضي", "Default") },
+              ...statusOptions.map((item) => ({
+                value: item.value,
+                label: locale === "ar" ? item.ar : item.en,
+              })),
+            ],
+          },
+        ]}
+      />
+
       <div className="table-wrap">
         <table className="data">
           <thead>
@@ -107,20 +158,51 @@ export default async function OperationsPage({ searchParams }: { searchParams: P
             </tr>
           </thead>
           <tbody>
-            {view.total === 0 ? <tr><td colSpan={6} className="empty">{tx(locale, "لا عمليات مطابقة.", "No matching operations.")}</td></tr> : view.rows.map((item) => (
-              <tr key={item.id}>
-                <td><Link className="link" href={`/operations/${item.id}`}>{locName(locale, item.nameAr, item.nameEn)}</Link></td>
-                <td>{locName(locale, item.typeAr, item.typeEn)}</td>
-                <td className="num">{formatDate(item.approvalDate)}</td>
-                <td>{item.departmentCount}<div className="fine">{locName(locale, item.departmentsAr, item.departmentsEn)}</div></td>
-                <td className="num">{formatMoney(item.amount, locale)}</td>
-                <td><StatusChip locale={locale} status={item.status} /></td>
+            {view.total === 0 ? (
+              <tr>
+                <td colSpan={6} className="empty">
+                  {tx(locale, "لا عمليات مطابقة.", "No matching operations.")}
+                </td>
               </tr>
-            ))}
+            ) : (
+              view.rows.map((item) => (
+                <tr key={item.id}>
+                  <td>
+                    <Link className="link" href={`/operations/${item.id}`}>
+                      {locName(locale, item.nameAr, item.nameEn)}
+                    </Link>
+                  </td>
+                  <td>{locName(locale, item.typeAr, item.typeEn)}</td>
+                  <td className="num">{formatDate(item.approvalDate)}</td>
+                  <td>
+                    {item.departmentCount}
+                    <div className="fine">{locName(locale, item.departmentsAr, item.departmentsEn)}</div>
+                  </td>
+                  <td className="num">{formatMoney(item.amount, locale)}</td>
+                  <td>
+                    <StatusChip locale={locale} status={item.status} />
+                    <div className="fine">
+                      {derivedStatusLabel(locale, item.derivedStatus)}
+                      {item.daysLate ? tx(locale, ` · +${item.daysLate} يوم`, ` · +${item.daysLate}d`) : ""}
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
-      <Pager locale={locale} page={view.page} pages={view.pages} total={view.total} from={view.from} to={view.to} size={view.size} base="/operations" params={{ q: query.q, type: query.type, department: query.department, status: query.status }} />
+      <Pager
+        locale={locale}
+        page={view.page}
+        pages={view.pages}
+        total={view.total}
+        from={view.from}
+        to={view.to}
+        size={view.size}
+        base="/operations"
+        params={{ q: query.q, type: query.type, department: query.department, status: query.status }}
+      />
     </>
   );
 }

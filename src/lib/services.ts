@@ -6,7 +6,15 @@ import { parseISODate, dateToIso, todayISO, diffDays } from "./dates";
 import { computeStageWindows, evaluateAlertTypes, type StageRule } from "./rules";
 import { normalizeMoney, compareMoney } from "./money";
 import { roleLabel } from "./labels";
-import { can, canonicalRole, creatableRoles, isDepartmentRole, isPermission, rankOf } from "./permissions";
+import {
+  can,
+  canSeeUserAccount,
+  canonicalRole,
+  creatableRoles,
+  isDepartmentRole,
+  isPermission,
+  rankOf,
+} from "./permissions";
 
 export class ActionError extends Error {
   code: string;
@@ -64,7 +72,8 @@ function dateOrNull(value: string | null | undefined) {
 async function loadActiveStages(typeId: string) {
   const type = await prisma.operationType.findFirst({
     where: { id: typeId, isActive: true, deletedAt: null },
-    include: { stages: { where: { isActive: true }, orderBy: { sortOrder: "asc" } } },
+    // Department-scoped custom stages are never part of the default plan of a new operation.
+    include: { stages: { where: { isActive: true, departmentId: null, deletedAt: null }, orderBy: { sortOrder: "asc" } } },
   });
   if (!type || type.stages.length === 0) throw new ActionError("invalid");
   return type;
@@ -381,6 +390,7 @@ export async function updateStageDates(
       await tx.stageDateChange.create({
         data: {
           progressId: progress.id,
+          kind: "DATE_REVISED",
           field: "START",
           oldDate: progress.plannedStart,
           newDate: parseISODate(input.plannedStart),
@@ -393,6 +403,7 @@ export async function updateStageDates(
       await tx.stageDateChange.create({
         data: {
           progressId: progress.id,
+          kind: "DATE_REVISED",
           field: "DUE",
           oldDate: progress.plannedDue,
           newDate: parseISODate(input.plannedDue),
@@ -411,6 +422,187 @@ export async function updateStageDates(
       `Revised ${progress.stageDefinition.nameEn} dates in ${progress.operationDepartment.department.nameEn}`,
     );
   });
+}
+
+function stageSlug(value: string) {
+  return value
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9\u0600-\u06FF]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 40);
+}
+
+function assertDepartmentStageActor(user: CurrentUser, permission: "stages.add" | "stages.createType") {
+  if (!can(user, permission)) throw new ActionError("forbidden");
+  // Custom stages are department-scoped; the Sector never creates or attaches them.
+  if (!isDepartmentRole(user.role) || !user.departmentId) throw new ActionError("forbidden");
+  return user.departmentId;
+}
+
+/** Creates a department-owned stage type (never visible in settings, never part of default plans). */
+export async function createDepartmentStageType(
+  user: CurrentUser,
+  input: { operationTypeId: string; nameAr: string; nameEn: string },
+) {
+  const departmentId = assertDepartmentStageActor(user, "stages.createType");
+  const nameAr = input.nameAr.trim();
+  const nameEn = input.nameEn.trim() || nameAr;
+  if (nameAr.length < 2) throw new ActionError("stageNameRequired");
+  const department = await prisma.department.findFirst({ where: { id: departmentId, isActive: true } });
+  if (!department) throw new ActionError("forbidden");
+  const type = await prisma.operationType.findFirst({
+    where: { id: input.operationTypeId, isActive: true, deletedAt: null },
+  });
+  if (!type) throw new ActionError("notFound");
+
+  const slug = stageSlug(nameEn) || stageSlug(nameAr) || Date.now().toString(36).toUpperCase();
+  // Stage codes are unique per type, so a code also needs to be free among soft-deleted rows.
+  const taken = async (code: string) =>
+    prisma.stageDefinition.findUnique({ where: { operationTypeId_code: { operationTypeId: type.id, code } } });
+  let code = `CUSTOM_${slug}`;
+  const clash = await taken(code);
+  if (clash) {
+    if (clash.departmentId === departmentId) throw new ActionError("stageExists");
+    code = `CUSTOM_${slug}_${stageSlug(department.code) || departmentId.slice(-6).toUpperCase()}`;
+    if (await taken(code)) throw new ActionError("stageExists");
+  }
+  const sameName = await prisma.stageDefinition.findFirst({
+    where: {
+      operationTypeId: type.id,
+      deletedAt: null,
+      isActive: true,
+      nameAr,
+      OR: [{ departmentId: null }, { departmentId }],
+    },
+  });
+  if (sameName) throw new ActionError("stageExists");
+
+  const last = await prisma.stageDefinition.aggregate({
+    where: { operationTypeId: type.id },
+    _max: { sortOrder: true },
+  });
+  const created = await prisma.$transaction(async (tx) => {
+    const stage = await tx.stageDefinition.create({
+      data: {
+        operationTypeId: type.id,
+        code,
+        nameAr,
+        nameEn,
+        sortOrder: (last._max.sortOrder ?? 0) + 1,
+        durationMonths: 0,
+        durationDays: 0,
+        anchor: "MANUAL",
+        departmentId,
+        createdById: user.id,
+      },
+    });
+    await audit(
+      tx,
+      user.id,
+      "CREATE_DEPT_STAGE_TYPE",
+      "StageDefinition",
+      stage.id,
+      `نوع مرحلة خاص بـ ${department.nameAr}: ${nameAr} (${type.nameAr})`,
+      `Department stage type for ${department.nameEn}: ${nameEn} (${type.nameEn})`,
+    );
+    return stage;
+  });
+  return created.id;
+}
+
+/** Attaches a system stage or one of the department's own custom stages to an assignment. */
+export async function addStageToAssignment(
+  user: CurrentUser,
+  input: { operationDepartmentId: string; stageDefinitionId: string; plannedStart: string; plannedDue: string; note?: string },
+) {
+  const departmentId = assertDepartmentStageActor(user, "stages.add");
+  if (!input.plannedStart || !input.plannedDue) throw new ActionError("stageDatesRequired");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.plannedStart) || !/^\d{4}-\d{2}-\d{2}$/.test(input.plannedDue)) {
+    throw new ActionError("invalidDate");
+  }
+  if (diffDays(input.plannedStart, input.plannedDue) < 0) throw new ActionError("dueBeforeStart");
+  const note = input.note?.trim() || null;
+
+  const assignment = await prisma.operationDepartment.findFirst({
+    where: { id: input.operationDepartmentId, isDeleted: false, operation: { isDeleted: false } },
+    include: { operation: true, department: true },
+  });
+  if (!assignment) throw new ActionError("notFound");
+  if (assignment.departmentId !== departmentId) throw new ActionError("forbidden");
+
+  const stage = await prisma.stageDefinition.findFirst({
+    where: { id: input.stageDefinitionId, deletedAt: null, isActive: true },
+  });
+  if (!stage || stage.operationTypeId !== assignment.operation.operationTypeId) throw new ActionError("notFound");
+  // System stages (departmentId null) or the caller's own custom stages only.
+  if (stage.departmentId !== null && stage.departmentId !== departmentId) throw new ActionError("forbidden");
+
+  const existing = await prisma.departmentStageProgress.findUnique({
+    where: { operationDepartmentId_stageDefinitionId: { operationDepartmentId: assignment.id, stageDefinitionId: stage.id } },
+  });
+  if (existing) throw new ActionError("stageAlreadyAdded");
+
+  const start = parseISODate(input.plannedStart);
+  const due = parseISODate(input.plannedDue);
+  const progressId = await prisma.$transaction(async (tx) => {
+    const progress = await tx.departmentStageProgress.create({
+      data: {
+        operationDepartmentId: assignment.id,
+        stageDefinitionId: stage.id,
+        baselineStart: start,
+        baselineDue: due,
+        plannedStart: start,
+        plannedDue: due,
+        isCurrent: false,
+      },
+    });
+    await tx.stageDateChange.create({
+      data: {
+        progressId: progress.id,
+        kind: "STAGE_ADDED",
+        field: "STAGE",
+        reason: note ?? "",
+        note,
+        createdById: user.id,
+      },
+    });
+    await tx.stageDateChange.create({
+      data: {
+        progressId: progress.id,
+        kind: "DATES_SET",
+        field: "START",
+        oldDate: null,
+        newDate: start,
+        reason: note ?? "",
+        note,
+        createdById: user.id,
+      },
+    });
+    await tx.stageDateChange.create({
+      data: {
+        progressId: progress.id,
+        kind: "DATES_SET",
+        field: "DUE",
+        oldDate: null,
+        newDate: due,
+        reason: note ?? "",
+        note,
+        createdById: user.id,
+      },
+    });
+    await audit(
+      tx,
+      user.id,
+      "ADD_STAGE_TO_ASSIGNMENT",
+      "DepartmentStageProgress",
+      progress.id,
+      `إضافة مرحلة ${stage.nameAr} إلى ${assignment.operation.nameAr} (${assignment.department.nameAr})`,
+      `Added stage ${stage.nameEn} to ${assignment.operation.nameEn || assignment.operation.nameAr} (${assignment.department.nameEn})`,
+    );
+    return progress.id;
+  });
+  return progressId;
 }
 
 export async function focusStage(user: CurrentUser, progressId: string, actualStart: string) {
@@ -471,12 +663,46 @@ export async function reopenStage(user: CurrentUser, progressId: string, reason:
 }
 
 export async function deleteAlert(user: CurrentUser, alertId: string) {
-  if (!can(user, "alerts.sector")) throw new ActionError("forbidden");
+  if (!can(user, "alerts.manage")) throw new ActionError("forbidden");
   const alert = await prisma.alert.findUnique({ where: { id: alertId } });
   if (!alert || alert.isDeleted) throw new ActionError("notFound");
   const now = new Date();
-  await prisma.alert.update({ where: { id: alertId }, data: { isDeleted: true, deletedAt: now } });
+  await prisma.alert.update({
+    where: { id: alertId },
+    data: { isDeleted: true, deletedAt: now, deletedById: user.id },
+  });
   await audit(prisma, user.id, "DELETE_ALERT", "Alert", alertId, "حذف تنبيه", "Deleted an alert");
+}
+
+export async function deleteAlertsBulk(user: CurrentUser, ids: string[]) {
+  if (!can(user, "alerts.manage")) throw new ActionError("forbidden");
+  const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  if (unique.length === 0) throw new ActionError("noChange");
+  const alerts = await prisma.alert.findMany({ where: { id: { in: unique }, isDeleted: false }, select: { id: true } });
+  if (alerts.length === 0) throw new ActionError("notFound");
+  const now = new Date();
+  await prisma.$transaction(async (db) => {
+    await db.alert.updateMany({
+      where: { id: { in: alerts.map((alert) => alert.id) }, isDeleted: false },
+      data: { isDeleted: true, deletedAt: now, deletedById: user.id },
+    });
+    for (const alert of alerts) {
+      await audit(db, user.id, "DELETE_ALERT", "Alert", alert.id, "حذف تنبيه", "Deleted an alert");
+    }
+  });
+  return alerts.length;
+}
+
+export async function restoreAlert(user: CurrentUser, alertId: string) {
+  if (!can(user, "alerts.manage")) throw new ActionError("forbidden");
+  const alert = await prisma.alert.findUnique({ where: { id: alertId } });
+  if (!alert || !alert.isDeleted) throw new ActionError("notFound");
+  // createdAt is intentionally left untouched.
+  await prisma.alert.update({
+    where: { id: alertId },
+    data: { isDeleted: false, deletedAt: null, deletedById: null },
+  });
+  await audit(prisma, user.id, "RESTORE_ALERT", "Alert", alertId, "استرجاع تنبيه", "Restored an alert");
 }
 
 export async function markRevisionsSeen(user: CurrentUser, ids: string[]) {
@@ -546,7 +772,7 @@ export async function changePassword(user: CurrentUser, currentPassword: string,
   await prisma.user.update({ where: { id: user.id }, data: { passwordHash: hashSync(nextPassword, 10) } });
 }
 
-export async function createType(user: CurrentUser, nameAr: string, nameEn: string, copyDefaults: boolean) {
+export async function createType(user: CurrentUser, nameAr: string, nameEn: string, _copyDefaults = true) {
   if (!can(user, "settings.types")) throw new ActionError("forbidden");
   if (nameAr.trim().length < 2) throw new ActionError("typeNameRequired");
   const count = await prisma.operationType.count();
@@ -558,11 +784,9 @@ export async function createType(user: CurrentUser, nameAr: string, nameEn: stri
       nameEn: nameEn.trim() || nameAr.trim(),
       isSystem: false,
       sortOrder: count + 1,
-      stages: copyDefaults
-        ? {
-            create: DEFAULT_STAGES.map((stage) => ({ ...stage })),
-          }
-        : undefined,
+      stages: {
+        create: DEFAULT_STAGES.map((stage) => ({ ...stage })),
+      },
     },
   });
   await audit(prisma, user.id, "CREATE_TYPE", "OperationType", created.id, `نوع عملية جديد: ${nameAr.trim()}`, `New operation type: ${nameEn.trim() || nameAr.trim()}`);
@@ -660,6 +884,8 @@ export async function syncAlerts() {
     );
     for (const type of ["OVERDUE", "HALFWAY", "DUE_SOON"] as const) {
       const existing = row.alerts.find((alert) => alert.type === type);
+      // A soft-deleted alert for the same progress + type stays deleted; never recreate or revive it.
+      if (existing?.isDeleted) continue;
       if (wanted.has(type)) {
         if (!existing) {
           try {
@@ -844,8 +1070,26 @@ export async function deleteUserAccount(user: CurrentUser, targetId: string) {
   const target = await prisma.user.findUnique({ where: { id: targetId } });
   if (!target) throw new ActionError("notFound");
   assertSameOrganization(user, target);
-  await prisma.user.update({ where: { id: targetId }, data: { isActive: false } });
-  await audit(prisma, user.id, "DELETE_USER", "User", targetId, `إيقاف حساب: ${target.email}`, `Deactivated account: ${target.email}`);
+  if (!canSeeUserAccount(user, target)) throw new ActionError("forbidden");
+  const now = new Date();
+  await prisma.user.update({
+    where: { id: targetId },
+    data: { isActive: false, deletedAt: now, deletedById: user.id },
+  });
+  await audit(prisma, user.id, "DELETE_USER", "User", targetId, `حذف حساب: ${target.email}`, `Deleted account: ${target.email}`);
+}
+
+export async function restoreUserAccount(user: CurrentUser, targetId: string) {
+  if (!can(user, "users.manage")) throw new ActionError("forbidden");
+  const target = await prisma.user.findUnique({ where: { id: targetId } });
+  if (!target || !target.deletedAt) throw new ActionError("notFound");
+  assertSameOrganization(user, target);
+  if (!canSeeUserAccount(user, target)) throw new ActionError("forbidden");
+  await prisma.user.update({
+    where: { id: targetId },
+    data: { isActive: true, deletedAt: null, deletedById: null },
+  });
+  await audit(prisma, user.id, "RESTORE_USER", "User", targetId, `استرجاع حساب: ${target.email}`, `Restored account: ${target.email}`);
 }
 
 export { dateOrNull };

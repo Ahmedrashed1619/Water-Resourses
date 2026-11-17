@@ -50,9 +50,11 @@ CREATE TABLE dbo.users (
   role NVARCHAR(40) NOT NULL,
   department_id NVARCHAR(40) NULL REFERENCES dbo.departments(id),
   is_active BIT NOT NULL CONSTRAINT DF_user_active DEFAULT 1,
+  deleted_at DATETIME2 NULL,
+  deleted_by_id NVARCHAR(40) NULL REFERENCES dbo.users(id),
   created_at DATETIME2 NOT NULL CONSTRAINT DF_user_created DEFAULT SYSUTCDATETIME(),
   updated_at DATETIME2 NOT NULL CONSTRAINT DF_user_updated DEFAULT SYSUTCDATETIME(),
-  CONSTRAINT CK_user_role CHECK (role IN (N'SUPER_ADMIN', N'SECTOR', N'DEPARTMENT'))
+  CONSTRAINT CK_user_role CHECK (role IN (N'SUPER_ADMIN', N'SECTOR', N'DEPARTMENT', N'SECTOR_SUPER_ADMIN', N'SECTOR_ADMIN', N'SECTOR_EMPLOYEE', N'DEPARTMENT_SUPER_ADMIN', N'DEPARTMENT_ADMIN', N'DEPARTMENT_EMPLOYEE'))
 );
 
 IF OBJECT_ID(N'dbo.operation_types', N'U') IS NULL
@@ -81,9 +83,12 @@ CREATE TABLE dbo.stage_definitions (
   duration_days INT NOT NULL CONSTRAINT DF_stage_days DEFAULT 0,
   anchor NVARCHAR(40) NOT NULL,
   is_active BIT NOT NULL CONSTRAINT DF_stage_active DEFAULT 1,
+  department_id NVARCHAR(40) NULL REFERENCES dbo.departments(id),
+  created_by_id NVARCHAR(40) NULL REFERENCES dbo.users(id),
+  deleted_at DATETIME2 NULL,
   created_at DATETIME2 NOT NULL CONSTRAINT DF_stage_created DEFAULT SYSUTCDATETIME(),
   CONSTRAINT UQ_stage_type_code UNIQUE (operation_type_id, code),
-  CONSTRAINT CK_stage_anchor CHECK (anchor IN (N'APPROVAL', N'FINANCIAL_OPENING'))
+  CONSTRAINT CK_stage_anchor CHECK (anchor IN (N'APPROVAL', N'FINANCIAL_OPENING', N'MANUAL'))
 );
 
 IF OBJECT_ID(N'dbo.operations', N'U') IS NULL
@@ -147,14 +152,16 @@ IF OBJECT_ID(N'dbo.stage_date_changes', N'U') IS NULL
 CREATE TABLE dbo.stage_date_changes (
   id NVARCHAR(40) NOT NULL PRIMARY KEY,
   progress_id NVARCHAR(40) NOT NULL REFERENCES dbo.department_stage_progress(id),
-  field NVARCHAR(20) NOT NULL,
-  old_date DATE NOT NULL,
-  new_date DATE NOT NULL,
-  reason NVARCHAR(500) NOT NULL,
+  kind NVARCHAR(20) NOT NULL CONSTRAINT DF_change_kind DEFAULT N'DATE_REVISED',
+  field NVARCHAR(20) NOT NULL CONSTRAINT DF_change_field DEFAULT N'DUE',
+  old_date DATE NULL,
+  new_date DATE NULL,
+  reason NVARCHAR(500) NOT NULL CONSTRAINT DF_change_reason DEFAULT N'',
+  note NVARCHAR(500) NULL,
   created_by_id NVARCHAR(40) NOT NULL REFERENCES dbo.users(id),
   seen_at DATETIME2 NULL,
   created_at DATETIME2 NOT NULL CONSTRAINT DF_change_created DEFAULT SYSUTCDATETIME(),
-  CONSTRAINT CK_reason_not_blank CHECK (LEN(LTRIM(RTRIM(reason))) > 0)
+  CONSTRAINT CK_change_kind CHECK (kind IN (N'STAGE_ADDED', N'DATES_SET', N'DATE_REVISED'))
 );
 
 IF OBJECT_ID(N'dbo.alerts', N'U') IS NULL
@@ -165,6 +172,7 @@ CREATE TABLE dbo.alerts (
   audience NVARCHAR(20) NOT NULL,
   is_deleted BIT NOT NULL CONSTRAINT DF_alert_deleted DEFAULT 0,
   deleted_at DATETIME2 NULL,
+  deleted_by_id NVARCHAR(40) NULL REFERENCES dbo.users(id),
   resolved_at DATETIME2 NULL,
   created_at DATETIME2 NOT NULL CONSTRAINT DF_alert_created DEFAULT SYSUTCDATETIME(),
   CONSTRAINT UQ_alert_progress_type UNIQUE (progress_id, type),

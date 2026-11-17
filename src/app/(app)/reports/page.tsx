@@ -17,7 +17,7 @@ export default async function ReportsPage({
   const user = await requireUser();
   const canExport = can(user, "reports.export");
   const canPrint = can(user, "reports.print");
-  const canOverrun = can(user, "reports.overrun");
+  const canOverrun = can(user, "reports.overrun") || can(user, "reports.overrun.download");
   if (!canExport && !canPrint && !canOverrun) redirect("/");
   const locale = await getLocale();
   const query = await searchParams;

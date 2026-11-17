@@ -124,10 +124,13 @@ export function actionLabel(locale: Locale, action: string) {
     COMPLETE_STAGE: "إنهاء مرحلة",
     REOPEN_STAGE: "إعادة فتح مرحلة",
     DELETE_ALERT: "حذف تنبيه",
+    RESTORE_ALERT: "استرجاع تنبيه",
     CREATE_USER: "إضافة مستخدم",
     TOGGLE_USER: "تفعيل أو إيقاف حساب",
     CREATE_TYPE: "نوع عملية جديد",
     CREATE_STAGE: "مرحلة جديدة",
+    CREATE_DEPT_STAGE_TYPE: "نوع مرحلة خاص بإدارة",
+    ADD_STAGE_TO_ASSIGNMENT: "إضافة مرحلة لعملية",
     ASSIGN_TASKS: "تعيين مهام",
   };
   const en: Record<string, string> = {
@@ -143,10 +146,13 @@ export function actionLabel(locale: Locale, action: string) {
     COMPLETE_STAGE: "Completed a stage",
     REOPEN_STAGE: "Reopened a stage",
     DELETE_ALERT: "Deleted an alert",
+    RESTORE_ALERT: "Restored an alert",
     CREATE_USER: "Added a user",
     TOGGLE_USER: "Activated or suspended an account",
     CREATE_TYPE: "New operation type",
     CREATE_STAGE: "New stage",
+    CREATE_DEPT_STAGE_TYPE: "Department stage type created",
+    ADD_STAGE_TO_ASSIGNMENT: "Stage added to an operation",
     ASSIGN_TASKS: "Assigned tasks",
   };
   return (locale === "ar" ? ar : en)[action] ?? (locale === "ar" ? "إجراء مسجّل" : "Recorded action");
@@ -155,5 +161,12 @@ export function actionLabel(locale: Locale, action: string) {
 export function fieldLabel(locale: Locale, field: string) {
   if (field === "START") return locale === "ar" ? "بدء مخطط" : "Planned start";
   if (field === "DUE") return locale === "ar" ? "نهو مخطط" : "Planned finish";
+  if (field === "STAGE") return locale === "ar" ? "مرحلة" : "Stage";
   return field;
+}
+
+export function changeKindLabel(locale: Locale, kind?: string) {
+  if (kind === "STAGE_ADDED") return locale === "ar" ? "إضافة مرحلة" : "Stage added";
+  if (kind === "DATES_SET") return locale === "ar" ? "تحديد المواعيد" : "Dates set";
+  return locale === "ar" ? "تعديل موعد" : "Date revised";
 }

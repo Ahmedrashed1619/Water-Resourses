@@ -6,8 +6,14 @@ import { dateToIso, diffDays, parseISODate, todayISO } from "./dates";
 import { fiscalYearOf } from "./needs-rules";
 import { addMoney } from "./money";
 import { audienceFor, can, isDepartmentRole } from "./permissions";
+import {
+  deriveOperationDepartmentStatus,
+  derivedToLegacyChip,
+  matchesStatusFilter,
+  type DerivedOpStatus,
+} from "./operation-status";
 import { stageVisualStatus, worstStatus, type AlertType, type StageVisualStatus } from "./rules";
-import type { AlertRow, AssignmentVM, DashboardData, DeptStat, OperationDetail, OperationListItem, StageVM } from "./view";
+import type { AlertRow, DeletedAlertRow, AssignmentVM, DashboardData, DeptStat, OperationDetail, OperationListItem, StageVM } from "./view";
 
 const assignmentInclude = {
   department: true,
@@ -43,6 +49,7 @@ function mapStage(row: AssignmentRow["progress"][number], today: string): StageV
     nameAr: row.stageDefinition.nameAr,
     nameEn: row.stageDefinition.nameEn,
     sortOrder: row.stageDefinition.sortOrder,
+    isCustom: row.stageDefinition.departmentId !== null,
     baselineStart,
     baselineDue,
     plannedStart,
@@ -56,10 +63,12 @@ function mapStage(row: AssignmentRow["progress"][number], today: string): StageV
     changed: baselineStart !== plannedStart || baselineDue !== plannedDue,
     changes: row.dateChanges.map((change) => ({
       id: change.id,
+      kind: change.kind,
       field: change.field,
-      oldDate: dateToIso(change.oldDate),
-      newDate: dateToIso(change.newDate),
+      oldDate: change.oldDate ? dateToIso(change.oldDate) : null,
+      newDate: change.newDate ? dateToIso(change.newDate) : null,
       reason: change.reason,
+      note: change.note,
       actorAr: change.createdBy.nameAr,
       actorEn: change.createdBy.nameEn,
       seenAt: change.seenAt ? change.seenAt.toISOString() : null,
@@ -71,6 +80,15 @@ function mapStage(row: AssignmentRow["progress"][number], today: string): StageV
 function mapAssignment(row: AssignmentRow, today: string): AssignmentVM {
   const stages = row.progress.map((item) => mapStage(item, today));
   const delta = row.adjustments.reduce((sum, item) => addMoney(sum, item.deltaAmount), "0.00");
+  const derivedStatus = deriveOperationDepartmentStatus(
+    stages.map((stage) => ({
+      plannedStart: stage.plannedStart,
+      plannedDue: stage.plannedDue,
+      actualStart: stage.actualStart,
+      completedAt: stage.completedAt,
+    })),
+    today,
+  );
   return {
     id: row.id,
     departmentId: row.departmentId,
@@ -100,7 +118,8 @@ function mapAssignment(row: AssignmentRow, today: string): AssignmentVM {
       note: item.note,
     })),
     stages,
-    status: worstStatus(stages.map((stage) => stage.status)),
+    status: derivedToLegacyChip(derivedStatus) as StageVisualStatus,
+    derivedStatus,
   };
 }
 
@@ -114,6 +133,17 @@ function toListItem(operation: {
 }, today: string): OperationListItem {
   const assignments = operation.assignments.map((item) => mapAssignment(item, today));
   const amount = assignments.reduce((sum, item) => addMoney(sum, item.currentAmount), "0.00");
+  const derivedRank: Record<DerivedOpStatus, number> = {
+    LATE: 5,
+    IN_PROGRESS: 4,
+    NOT_STARTED: 3,
+    COMPLETED_LATE: 2,
+    COMPLETED_ON_TIME: 1,
+  };
+  const derivedStatus = assignments.reduce<DerivedOpStatus>((worst, item) => {
+    return derivedRank[item.derivedStatus] > derivedRank[worst] ? item.derivedStatus : worst;
+  }, assignments[0]?.derivedStatus ?? "NOT_STARTED");
+  const daysLate = Math.max(0, ...assignments.flatMap((item) => item.stages.map((stage) => stage.daysLate)));
   return {
     id: operation.id,
     nameAr: operation.nameAr,
@@ -121,11 +151,13 @@ function toListItem(operation: {
     typeAr: operation.operationType.nameAr,
     typeEn: operation.operationType.nameEn,
     approvalDate: dateToIso(operation.technicalApprovalDate),
-    status: worstStatus(assignments.map((item) => item.status)),
+    status: derivedToLegacyChip(derivedStatus) as StageVisualStatus,
+    derivedStatus,
     departmentCount: assignments.length,
     amount,
     departmentsAr: assignments.map((item) => item.departmentAr).join("، "),
     departmentsEn: assignments.map((item) => item.departmentEn).join(", "),
+    daysLate,
   };
 }
 
@@ -141,6 +173,7 @@ export async function getShellCounts(user: CurrentUser) {
     prisma.alert.count({
       where: {
         isDeleted: false,
+        deletedAt: null,
         resolvedAt: null,
         audience,
         type: isDepartmentRole(user.role) ? { in: ["HALFWAY", "DUE_SOON"] } : "OVERDUE",
@@ -170,13 +203,14 @@ function canSeeRevisions(user: CurrentUser) {
 
 export async function listAlerts(
   user: CurrentUser,
-  filter: { departmentId?: string; stageCode?: string } = {},
+  filter: { departmentId?: string; stageCode?: string; operationTypeId?: string } = {},
 ): Promise<AlertRow[]> {
   const today = todayISO();
   const departmentId = isDepartmentRole(user.role) ? user.departmentId ?? "__none__" : filter.departmentId;
   const alerts = await prisma.alert.findMany({
     where: {
       isDeleted: false,
+      deletedAt: null,
       resolvedAt: null,
       audience: audienceFor(user.role),
       type: isDepartmentRole(user.role) ? { in: ["HALFWAY", "DUE_SOON"] } : "OVERDUE",
@@ -184,46 +218,85 @@ export async function listAlerts(
         ...(filter.stageCode ? { stageDefinition: { code: filter.stageCode } } : {}),
         operationDepartment: {
           isDeleted: false,
-          operation: { isDeleted: false },
+          operation: { isDeleted: false, ...(filter.operationTypeId ? { operationTypeId: filter.operationTypeId } : {}) },
           ...(departmentId ? { departmentId } : {}),
         },
       },
     },
+    include: alertInclude,
+  });
+  return alerts
+    .map((alert) => mapAlertRow(alert, today))
+    .sort((a, b) => b.daysLate - a.daysLate || a.departmentAr.localeCompare(b.departmentAr, "ar"));
+}
+
+const alertInclude = {
+  progress: {
     include: {
+      stageDefinition: true,
+      operationDepartment: { include: { department: true, operation: { include: { operationType: true } } } },
+    },
+  },
+} satisfies Prisma.AlertInclude;
+
+type AlertWithProgress = Prisma.AlertGetPayload<{ include: typeof alertInclude }>;
+
+function mapAlertRow(alert: AlertWithProgress, today: string): AlertRow {
+  const start = dateToIso(alert.progress.plannedStart);
+  const due = dateToIso(alert.progress.plannedDue);
+  return {
+    id: alert.id,
+    type: alert.type as AlertType,
+    operationId: alert.progress.operationDepartment.operationId,
+    operationAr: alert.progress.operationDepartment.operation.nameAr,
+    operationEn: alert.progress.operationDepartment.operation.nameEn,
+    operationTypeAr: alert.progress.operationDepartment.operation.operationType.nameAr,
+    operationTypeEn: alert.progress.operationDepartment.operation.operationType.nameEn,
+    departmentId: alert.progress.operationDepartment.departmentId,
+    departmentAr: alert.progress.operationDepartment.department.nameAr,
+    departmentEn: alert.progress.operationDepartment.department.nameEn,
+    stageAr: alert.progress.stageDefinition.nameAr,
+    stageEn: alert.progress.stageDefinition.nameEn,
+    stageCode: alert.progress.stageDefinition.code,
+    plannedStart: start,
+    plannedDue: due,
+    approvalDate: dateToIso(alert.progress.operationDepartment.operation.technicalApprovalDate),
+    daysLate: Math.max(0, diffDays(due, today)),
+    daysRemaining: diffDays(today, due),
+  };
+}
+
+/** Deleted-alerts log. Requires `alerts.deletedLog.view`; sector-facing alerts only. */
+export async function listDeletedAlerts(
+  user: CurrentUser,
+  filter: { departmentId?: string; operationTypeId?: string } = {},
+): Promise<DeletedAlertRow[]> {
+  if (!can(user, "alerts.deletedLog.view") || isDepartmentRole(user.role)) return [];
+  const today = todayISO();
+  const alerts = await prisma.alert.findMany({
+    where: {
+      isDeleted: true,
+      audience: audienceFor(user.role),
       progress: {
-        include: {
-          stageDefinition: true,
-          operationDepartment: { include: { department: true, operation: { include: { operationType: true } } } },
+        operationDepartment: {
+          isDeleted: false,
+          operation: { isDeleted: false, ...(filter.operationTypeId ? { operationTypeId: filter.operationTypeId } : {}) },
+          ...(filter.departmentId ? { departmentId: filter.departmentId } : {}),
         },
       },
     },
+    include: { ...alertInclude, deletedBy: { select: { id: true, nameAr: true, nameEn: true } } },
   });
   return alerts
-    .map((alert) => {
-      const start = dateToIso(alert.progress.plannedStart);
-      const due = dateToIso(alert.progress.plannedDue);
-      return {
-        id: alert.id,
-        type: alert.type as AlertType,
-        operationId: alert.progress.operationDepartment.operationId,
-        operationAr: alert.progress.operationDepartment.operation.nameAr,
-        operationEn: alert.progress.operationDepartment.operation.nameEn,
-        operationTypeAr: alert.progress.operationDepartment.operation.operationType.nameAr,
-        operationTypeEn: alert.progress.operationDepartment.operation.operationType.nameEn,
-        departmentId: alert.progress.operationDepartment.departmentId,
-        departmentAr: alert.progress.operationDepartment.department.nameAr,
-        departmentEn: alert.progress.operationDepartment.department.nameEn,
-        stageAr: alert.progress.stageDefinition.nameAr,
-        stageEn: alert.progress.stageDefinition.nameEn,
-        stageCode: alert.progress.stageDefinition.code,
-        plannedStart: start,
-        plannedDue: due,
-        approvalDate: dateToIso(alert.progress.operationDepartment.operation.technicalApprovalDate),
-        daysLate: Math.max(0, diffDays(due, today)),
-        daysRemaining: diffDays(today, due),
-      };
-    })
-    .sort((a, b) => b.daysLate - a.daysLate || a.departmentAr.localeCompare(b.departmentAr, "ar"));
+    .map((alert) => ({
+      ...mapAlertRow(alert, today),
+      deletedAt: alert.deletedAt ? alert.deletedAt.toISOString() : null,
+      deletedById: alert.deletedById,
+      deletedByAr: alert.deletedBy?.nameAr ?? null,
+      deletedByEn: alert.deletedBy?.nameEn ?? null,
+      createdAt: alert.createdAt.toISOString(),
+    }))
+    .sort((a, b) => (b.deletedAt ?? "").localeCompare(a.deletedAt ?? ""));
 }
 
 export async function listOperations(
@@ -233,7 +306,12 @@ export async function listOperations(
   const operations = await loadFilteredOperations(user, filter);
   const today = todayISO();
   let items = operations.map((operation) => toListItem(operation, today));
-  if (filter.status) items = items.filter((item) => item.status === filter.status);
+  // Default sector view: late + in progress when no status filter provided
+  if (!filter.status && !isDepartmentRole(user.role)) {
+    items = items.filter((item) => item.derivedStatus === "LATE" || item.derivedStatus === "IN_PROGRESS");
+  } else if (filter.status) {
+    items = items.filter((item) => matchesStatusFilter(item.derivedStatus, filter.status));
+  }
   return items;
 }
 
@@ -360,6 +438,24 @@ export async function getOperation(user: CurrentUser, id: string, departmentId?:
     if (!allowed) return null;
   }
   const assignments = operation.assignments.map((item) => mapAssignment(item, today));
+  if (isDepartmentRole(user.role) && user.departmentId && can(user, "stages.add")) {
+    // Unused system stages + this department's own custom stages for the operation's type.
+    const candidates = await prisma.stageDefinition.findMany({
+      where: {
+        operationTypeId: operation.operationTypeId,
+        isActive: true,
+        deletedAt: null,
+        OR: [{ departmentId: null }, { departmentId: user.departmentId }],
+      },
+      orderBy: { sortOrder: "asc" },
+    });
+    for (const assignment of assignments) {
+      const used = new Set(assignment.stages.map((stage) => stage.code));
+      assignment.availableStages = candidates
+        .filter((stage) => !used.has(stage.code))
+        .map((stage) => ({ id: stage.id, nameAr: stage.nameAr, nameEn: stage.nameEn, isCustom: stage.departmentId !== null }));
+    }
+  }
   return {
     id: operation.id,
     nameAr: operation.nameAr,
@@ -561,8 +657,12 @@ export async function getDashboard(user: CurrentUser): Promise<DashboardData> {
         href: `/operations/${od.operation.id}?department=${od.departmentId}`,
         titleAr: `${od.department.nameAr} — ${od.operation.nameAr}`,
         titleEn: `${od.department.nameEn} — ${od.operation.nameEn || od.operation.nameAr}`,
-        metaAr: `${rev.progress.stageDefinition.nameAr}: ${dateToIso(rev.oldDate)} → ${dateToIso(rev.newDate)} · ${rev.reason}`,
-        metaEn: `${rev.progress.stageDefinition.nameEn}: ${dateToIso(rev.oldDate)} → ${dateToIso(rev.newDate)} · ${rev.reason}`,
+        metaAr: rev.kind === "STAGE_ADDED"
+          ? `مرحلة مضافة: ${rev.progress.stageDefinition.nameAr}${rev.reason ? ` · ${rev.reason}` : ""}`
+          : `${rev.progress.stageDefinition.nameAr}: ${rev.oldDate ? dateToIso(rev.oldDate) : "—"} → ${rev.newDate ? dateToIso(rev.newDate) : "—"} · ${rev.reason}`,
+        metaEn: rev.kind === "STAGE_ADDED"
+          ? `Stage added: ${rev.progress.stageDefinition.nameEn}${rev.reason ? ` · ${rev.reason}` : ""}`
+          : `${rev.progress.stageDefinition.nameEn}: ${rev.oldDate ? dateToIso(rev.oldDate) : "—"} → ${rev.newDate ? dateToIso(rev.newDate) : "—"} · ${rev.reason}`,
         at: dateToIso(rev.createdAt),
       });
     }
@@ -640,9 +740,10 @@ export async function listRevisions() {
   });
   return rows.map((row) => ({
     id: row.id,
+    kind: row.kind,
     field: row.field,
-    oldDate: dateToIso(row.oldDate),
-    newDate: dateToIso(row.newDate),
+    oldDate: row.oldDate ? dateToIso(row.oldDate) : null,
+    newDate: row.newDate ? dateToIso(row.newDate) : null,
     reason: row.reason,
     seenAt: row.seenAt ? row.seenAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
@@ -658,12 +759,19 @@ export async function listRevisions() {
   }));
 }
 
-export async function listUsers(user: CurrentUser) {
+export async function listUsers(user: CurrentUser, options?: { includeDeleted?: boolean }) {
+  const deletedFilter = options?.includeDeleted ? { deletedAt: { not: null } } : { deletedAt: null };
   return prisma.user.findMany({
-    where: isDepartmentRole(user.role)
-      ? { departmentId: user.departmentId ?? "__none__" }
-      : { role: { in: ["SECTOR_SUPER_ADMIN", "SECTOR_ADMIN", "SECTOR_EMPLOYEE", "SUPER_ADMIN", "SECTOR"] } },
-    include: { department: true },
+    where: {
+      ...deletedFilter,
+      ...(isDepartmentRole(user.role)
+        ? { departmentId: user.departmentId ?? "__none__" }
+        : { role: { in: ["SECTOR_SUPER_ADMIN", "SECTOR_ADMIN", "SECTOR_EMPLOYEE", "SUPER_ADMIN", "SECTOR"] } }),
+    },
+    include: {
+      department: true,
+      deletedBy: options?.includeDeleted ? { select: { id: true, nameAr: true, nameEn: true, email: true } } : false,
+    },
     orderBy: [{ role: "asc" }, { nameAr: "asc" }],
   });
 }
@@ -703,15 +811,30 @@ export async function listTypes(options?: { includeDeleted?: boolean }) {
   return prisma.operationType.findMany({
     where: options?.includeDeleted ? undefined : { deletedAt: null },
     include: {
-      stages: { orderBy: { sortOrder: "asc" } },
+      // Settings / create-op: system stages only (departmentId null)
+      stages: { where: { departmentId: null, deletedAt: null }, orderBy: { sortOrder: "asc" } },
       deletedBy: options?.includeDeleted ? { select: { id: true, nameAr: true, nameEn: true, email: true } } : false,
     },
     orderBy: { sortOrder: "asc" },
   });
 }
 
-export async function listAudit() {
+export async function listAudit(user: CurrentUser) {
+  if (!can(user, "audit.view")) return [];
+  const excludeSsa = !can(user, "users.manageAll");
   return prisma.auditLog.findMany({
+    where: excludeSsa
+      ? {
+          OR: [
+            { actorId: user.id },
+            {
+              actor: {
+                role: { in: ["SECTOR_ADMIN", "SECTOR_EMPLOYEE", "SECTOR"] },
+              },
+            },
+          ],
+        }
+      : undefined,
     include: { actor: true },
     orderBy: { createdAt: "desc" },
     take: 120,

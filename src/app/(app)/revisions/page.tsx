@@ -4,7 +4,7 @@ import { Pager } from "@/components/pager";
 import { PageHeader } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
 import { formatDate, formatStamp } from "@/lib/format";
-import { fieldLabel } from "@/lib/labels";
+import { changeKindLabel, fieldLabel } from "@/lib/labels";
 import { getLocale } from "@/lib/locale";
 import { getPageSize } from "@/lib/page-size";
 import { pageOf } from "@/lib/paging";
@@ -45,8 +45,12 @@ export default async function RevisionsPage({ searchParams }: { searchParams: Pr
                 <td>{formatStamp(row.createdAt, locale)}<div className="fine">{locName(locale, row.actorAr, row.actorEn)}</div></td>
                 <td><Link className="link" href={`/operations/${row.operationId}`}>{locName(locale, row.operationAr, row.operationEn)}</Link></td>
                 <td>{locName(locale, row.departmentAr, row.departmentEn)}<div className="fine">{locName(locale, row.stageAr, row.stageEn)}</div></td>
-                <td>{fieldLabel(locale, row.field)}<div className="num">{formatDate(row.oldDate)} → {formatDate(row.newDate)}</div></td>
-                <td>{row.reason}</td>
+                <td>
+                  <span className="chip gold">{changeKindLabel(locale, row.kind)}</span>{" "}
+                  {fieldLabel(locale, row.field)}
+                  {row.kind === "STAGE_ADDED" ? null : <div className="num">{formatDate(row.oldDate)} → {formatDate(row.newDate)}</div>}
+                </td>
+                <td>{row.reason || "—"}</td>
                 <td>
                   {row.seenAt ? <span className="chip completed">{tx(locale, "شوهد", "Seen")}</span> : (
                     <form action={markRevisionsSeenAction}>

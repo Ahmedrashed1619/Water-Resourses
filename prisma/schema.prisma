@@ -17,46 +17,54 @@ model Sector {
 }
 
 model Department {
-  id           String                 @id @default(cuid())
-  sectorId     String
-  sector       Sector                 @relation(fields: [sectorId], references: [id])
-  code         String                 @unique
-  nameAr       String
-  nameEn       String
-  sortOrder    Int
-  isActive     Boolean                @default(true)
-  createdAt    DateTime               @default(now())
-  users        User[]
-  assignments  OperationDepartment[]
-  needRequests OperationNeedRequest[]
+  id              String                 @id @default(cuid())
+  sectorId        String
+  sector          Sector                 @relation(fields: [sectorId], references: [id])
+  code            String                 @unique
+  nameAr          String
+  nameEn          String
+  sortOrder       Int
+  isActive        Boolean                @default(true)
+  createdAt       DateTime               @default(now())
+  users           User[]
+  assignments     OperationDepartment[]
+  needRequests    OperationNeedRequest[]
+  customStages    StageDefinition[]      @relation("DepartmentCustomStages")
 
   @@index([sectorId])
 }
 
 model User {
-  id                 String                  @id @default(cuid())
-  email              String                  @unique
-  passwordHash       String
-  nameAr             String
-  nameEn             String
-  role               String
-  tasks              String?
-  departmentId       String?
-  department         Department?             @relation(fields: [departmentId], references: [id])
-  isActive           Boolean                 @default(true)
-  createdAt          DateTime                @default(now())
-  updatedAt          DateTime                @updatedAt
-  operations         Operation[]             @relation("OperationCreator")
-  adjustments        FinancialAdjustment[]   @relation("AdjustmentAuthor")
-  dateChanges        StageDateChange[]       @relation("DateChangeAuthor")
-  audits             AuditLog[]              @relation("AuditActor")
-  deletedTypes       OperationType[]         @relation("OperationTypeDeletedBy")
-  fundingTranches    FundingTranche[]        @relation("FundingTrancheAuthor")
-  needRequestsCreated OperationNeedRequest[] @relation("NeedRequestCreator")
-  needRequestsReviewed OperationNeedRequest[] @relation("NeedRequestReviewer")
+  id                   String                  @id @default(cuid())
+  email                String                  @unique
+  passwordHash         String
+  nameAr               String
+  nameEn               String
+  role                 String
+  tasks                String?
+  departmentId         String?
+  department           Department?             @relation(fields: [departmentId], references: [id])
+  isActive             Boolean                 @default(true)
+  deletedAt            DateTime?
+  deletedById          String?
+  deletedBy            User?                   @relation("UserDeletedBy", fields: [deletedById], references: [id])
+  deletedUsers         User[]                  @relation("UserDeletedBy")
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+  operations           Operation[]             @relation("OperationCreator")
+  adjustments          FinancialAdjustment[]   @relation("AdjustmentAuthor")
+  dateChanges          StageDateChange[]       @relation("DateChangeAuthor")
+  audits               AuditLog[]              @relation("AuditActor")
+  deletedTypes         OperationType[]         @relation("OperationTypeDeletedBy")
+  fundingTranches      FundingTranche[]        @relation("FundingTrancheAuthor")
+  needRequestsCreated  OperationNeedRequest[]  @relation("NeedRequestCreator")
+  needRequestsReviewed OperationNeedRequest[]  @relation("NeedRequestReviewer")
+  deletedAlerts        Alert[]                 @relation("AlertDeletedBy")
+  customStagesCreated  StageDefinition[]       @relation("StageDefinitionCreator")
 
   @@index([role])
   @@index([departmentId])
+  @@index([deletedAt])
 }
 
 model OperationType {
@@ -90,10 +98,19 @@ model StageDefinition {
   durationDays    Int                       @default(0)
   anchor          String
   isActive        Boolean                   @default(true)
+  /// null = system default; set = department-scoped custom stage type
+  departmentId    String?
+  department      Department?               @relation("DepartmentCustomStages", fields: [departmentId], references: [id])
+  createdById     String?
+  createdBy       User?                     @relation("StageDefinitionCreator", fields: [createdById], references: [id])
+  deletedAt       DateTime?
   createdAt       DateTime                  @default(now())
   progress        DepartmentStageProgress[]
 
+  /// System rows: departmentId null. Custom codes use CUSTOM_<slug> unique per type.
   @@unique([operationTypeId, code])
+  @@index([departmentId])
+  @@index([deletedAt])
 }
 
 model Operation {
@@ -191,10 +208,13 @@ model StageDateChange {
   id          String                  @id @default(cuid())
   progressId  String
   progress    DepartmentStageProgress @relation(fields: [progressId], references: [id])
-  field       String
-  oldDate     DateTime
-  newDate     DateTime
-  reason      String
+  /// STAGE_ADDED | DATES_SET | DATE_REVISED
+  kind        String                  @default("DATE_REVISED")
+  field       String                  @default("DUE")
+  oldDate     DateTime?
+  newDate     DateTime?
+  reason      String                  @default("")
+  note        String?
   createdById String
   createdBy   User                    @relation("DateChangeAuthor", fields: [createdById], references: [id])
   seenAt      DateTime?
@@ -202,21 +222,25 @@ model StageDateChange {
 
   @@index([progressId])
   @@index([seenAt])
+  @@index([kind])
 }
 
 model Alert {
-  id         String                  @id @default(cuid())
-  progressId String
-  progress   DepartmentStageProgress @relation(fields: [progressId], references: [id])
-  type       String
-  audience   String
-  isDeleted  Boolean                 @default(false)
-  deletedAt  DateTime?
-  resolvedAt DateTime?
-  createdAt  DateTime                @default(now())
+  id          String                  @id @default(cuid())
+  progressId  String
+  progress    DepartmentStageProgress @relation(fields: [progressId], references: [id])
+  type        String
+  audience    String
+  isDeleted   Boolean                 @default(false)
+  deletedAt   DateTime?
+  deletedById String?
+  deletedBy   User?                   @relation("AlertDeletedBy", fields: [deletedById], references: [id])
+  resolvedAt  DateTime?
+  createdAt   DateTime                @default(now())
 
   @@unique([progressId, type])
   @@index([audience, isDeleted, resolvedAt])
+  @@index([deletedAt])
 }
 
 model OperationNeedRequest {

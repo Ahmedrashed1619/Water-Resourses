@@ -45,14 +45,6 @@ export default async function SettingsPage() {
             isSystem: type.isSystem,
             deletedAt: type.deletedAt ? type.deletedAt.toISOString() : null,
             deletedByName: type.deletedBy ? (locale === "ar" ? type.deletedBy.nameAr : type.deletedBy.nameEn) : null,
-            stages: type.stages.map((stage) => ({
-              id: stage.id,
-              nameAr: stage.nameAr,
-              nameEn: stage.nameEn,
-              durationMonths: stage.durationMonths,
-              durationDays: stage.durationDays,
-              anchor: stage.anchor,
-            })),
           }))}
         />
       ) : null}
