@@ -4,14 +4,12 @@ import { todayISO } from "@/lib/dates";
 import { formatLongDate } from "@/lib/format";
 import { getLocale } from "@/lib/locale";
 import { getShellCounts } from "@/lib/queries";
-import { syncAlerts } from "@/lib/services";
+import { syncAlertsThrottled } from "@/lib/services";
 import { locName } from "@/lib/text";
-
-export const dynamic = "force-dynamic";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  await syncAlerts();
+  await syncAlertsThrottled();
   const [counts, locale] = await Promise.all([getShellCounts(user), getLocale()]);
   return (
     <Shell

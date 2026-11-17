@@ -128,15 +128,7 @@ export default async function DashboardPage() {
                   href={item.href}
                   title={locName(locale, item.titleAr, item.titleEn)}
                   meta={locName(locale, item.metaAr, item.metaEn)}
-                  trailing={
-                    <span className={`chip ${item.kind === "overdue" ? "overdue" : item.kind === "revision" ? "halfway" : "gold"}`}>
-                      {item.kind === "overdue"
-                        ? tx(locale, "متأخر", "Late")
-                        : item.kind === "revision"
-                          ? tx(locale, "تعديل", "Revision")
-                          : tx(locale, "جديد", "New")}
-                    </span>
-                  }
+                  tone={item.kind === "overdue" ? "overdue" : item.kind === "revision" ? "revision" : "new"}
                 />
               ))}
             </DashList>

@@ -1,11 +1,11 @@
 "use server";
 
 import { cookies } from "next/headers";
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import bcrypt from "bcryptjs";
 import { dict } from "@/i18n/dictionaries";
 import { requireUser } from "@/lib/auth";
+import { bust, tags } from "@/lib/cache";
 import { SESSION_COOKIE, LOCALE_COOKIE } from "@/lib/constants";
 import { getLocale } from "@/lib/locale";
 import { can } from "@/lib/permissions";
@@ -90,6 +90,7 @@ export async function createOperationAction(_prev: ActionResult | null, formData
   } catch (error) {
     return fail(locale, error);
   }
+  bust(tags.operations, tags.dashboard, tags.shell, tags.alerts, tags.departments);
   redirect(`/operations/${id}`);
 }
 
@@ -101,12 +102,14 @@ export async function renameOperationAction(_prev: ActionResult | null, formData
   } catch (error) {
     return fail(locale, error);
   }
+  bust(tags.operations, tags.dashboard, tags.shell);
   return { ok: true, message: locale === "ar" ? "تم حفظ الاسم" : "Name saved" };
 }
 
 export async function deleteOperationAction(formData: FormData): Promise<void> {
   const user = await requireUser();
   await services.deleteOperation(user, String(formData.get("id") || ""));
+  bust(tags.operations, tags.dashboard, tags.alerts, tags.shell, tags.revisions, tags.finance);
   redirect("/operations");
 }
 
@@ -120,6 +123,7 @@ export async function assignDepartmentsAction(_prev: ActionResult | null, formDa
   } catch (error) {
     return fail(locale, error);
   }
+  bust(tags.operations, tags.dashboard, tags.alerts, tags.shell, tags.departments);
   return { ok: true, message: locale === "ar" ? "تم التخصيص" : "Departments assigned" };
 }
 
@@ -131,6 +135,7 @@ export async function removeAssignmentAction(_prev: ActionResult | null, formDat
   } catch (error) {
     return fail(locale, error);
   }
+  bust(tags.operations, tags.dashboard, tags.alerts, tags.shell, tags.departments);
   return { ok: true, message: locale === "ar" ? "أُزيل التخصيص" : "Assignment removed" };
 }
 
@@ -147,6 +152,7 @@ export async function adjustFinanceAction(_prev: ActionResult | null, formData: 
   } catch (error) {
     return fail(locale, error);
   }
+  bust(tags.finance, tags.operations, tags.dashboard);
   return { ok: true, message: locale === "ar" ? "سُجّل التعديل المالي" : "Financial adjustment recorded" };
 }
 
@@ -163,6 +169,7 @@ export async function updateWindowAction(_prev: ActionResult | null, formData: F
   } catch (error) {
     return fail(locale, error);
   }
+  bust(tags.operations, tags.finance);
   return { ok: true, message: locale === "ar" ? "حُفظت فترة الاعتماد" : "Approval window saved" };
 }
 
@@ -180,6 +187,7 @@ export async function updateDatesAction(_prev: ActionResult | null, formData: Fo
   } catch (error) {
     return fail(locale, error);
   }
+  bust(tags.operations, tags.revisions, tags.alerts, tags.dashboard, tags.shell);
   return { ok: true, message: locale === "ar" ? "حُفظ التعديل وظهر للقطاع مع السبب" : "The revision was saved for the Sector, with its reason" };
 }
 
@@ -221,7 +229,7 @@ export async function createDepartmentStageTypeAction(_prev: ActionResult | null
   } catch (error) {
     return fail(locale, error);
   }
-  revalidatePath("/operations");
+  bust(tags.operations, tags.revisions, tags.alerts, tags.types, tags.shell, tags.dashboard);
   return { ok: true, message: locale === "ar" ? "أُنشئ نوع المرحلة وأُضيف إلى العملية" : "Stage type created and added to the operation" };
 }
 
@@ -240,7 +248,7 @@ export async function addStageToAssignmentAction(_prev: ActionResult | null, for
   } catch (error) {
     return fail(locale, error);
   }
-  revalidatePath("/operations");
+  bust(tags.operations, tags.revisions, tags.alerts, tags.shell, tags.dashboard);
   return { ok: true, message: locale === "ar" ? "أُضيفت المرحلة وظهرت للقطاع" : "Stage added and visible to the Sector" };
 }
 
@@ -252,6 +260,7 @@ export async function focusStageAction(_prev: ActionResult | null, formData: For
   } catch (error) {
     return fail(locale, error);
   }
+  bust(tags.operations, tags.dashboard);
   return { ok: true, message: locale === "ar" ? "أصبحت هذه المرحلة الحالية" : "This is now the active stage" };
 }
 
@@ -264,6 +273,7 @@ export async function completeStageAction(_prev: ActionResult | null, formData: 
   } catch (error) {
     return fail(locale, error);
   }
+  bust(tags.operations, tags.alerts, tags.dashboard, tags.shell);
   return { ok: true, message: locale === "ar" ? "أُقفلت المرحلة ولن تولّد تنبيهات" : "Stage closed. It will not raise alerts" };
 }
 
@@ -276,6 +286,7 @@ export async function reopenStageAction(_prev: ActionResult | null, formData: Fo
   } catch (error) {
     return fail(locale, error);
   }
+  bust(tags.operations, tags.alerts, tags.dashboard, tags.shell);
   return { ok: true, message: locale === "ar" ? "أُعيد فتح المرحلة" : "Stage reopened" };
 }
 
@@ -287,7 +298,7 @@ export async function deleteAlertAction(_prev: ActionResult | null, formData: Fo
   } catch (error) {
     return fail(locale, error);
   }
-  revalidatePath("/alerts");
+  bust(tags.alerts, tags.shell, tags.dashboard);
   return { ok: true, message: locale === "ar" ? "نُقل التنبيه إلى سجل المحذوفات" : "Alert moved to the deleted log" };
 }
 
@@ -297,7 +308,7 @@ export async function deleteAlertsBulkAction(_prev: ActionResult | null, formDat
   try {
     const ids = formData.getAll("ids").map(String);
     const count = await services.deleteAlertsBulk(user, ids);
-    revalidatePath("/alerts");
+    bust(tags.alerts, tags.shell, tags.dashboard);
     return {
       ok: true,
       message: locale === "ar" ? `نُقل ${count} تنبيه إلى سجل المحذوفات` : `${count} alert(s) moved to the deleted log`,
@@ -315,7 +326,7 @@ export async function restoreAlertAction(_prev: ActionResult | null, formData: F
   } catch (error) {
     return fail(locale, error);
   }
-  revalidatePath("/alerts");
+  bust(tags.alerts, tags.shell, tags.dashboard);
   return { ok: true, message: locale === "ar" ? "استُرجع التنبيه" : "Alert restored" };
 }
 
@@ -323,6 +334,7 @@ export async function markRevisionsSeenAction(formData: FormData): Promise<void>
   const user = await requireUser();
   const id = String(formData.get("id") || "");
   await services.markRevisionsSeen(user, id ? [id] : []);
+  bust(tags.revisions, tags.shell);
 }
 
 export async function createUserAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
@@ -340,12 +352,14 @@ export async function createUserAction(_prev: ActionResult | null, formData: For
   } catch (error) {
     return fail(locale, error);
   }
+  bust(tags.users, tags.departments);
   return { ok: true, message: locale === "ar" ? "أُضيف المستخدم" : "User added" };
 }
 
 export async function toggleUserAction(formData: FormData): Promise<void> {
   const user = await requireUser();
   await services.toggleUser(user, String(formData.get("id") || ""));
+  bust(tags.users);
 }
 
 export async function changePasswordAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
@@ -372,6 +386,7 @@ export async function createTypeAction(_prev: ActionResult | null, formData: For
   } catch (error) {
     return fail(locale, error);
   }
+  bust(tags.types, tags.directory);
   return { ok: true, message: locale === "ar" ? "أُضيف نوع العملية" : "Operation type added" };
 }
 
@@ -390,6 +405,7 @@ export async function createStageAction(_prev: ActionResult | null, formData: Fo
   } catch (error) {
     return fail(locale, error);
   }
+  bust(tags.types);
   return { ok: true, message: locale === "ar" ? "أُضيفت المرحلة" : "Stage added" };
 }
 
@@ -408,6 +424,7 @@ export async function updateStageAction(_prev: ActionResult | null, formData: Fo
   } catch (error) {
     return fail(locale, error);
   }
+  bust(tags.types);
   return { ok: true, message: locale === "ar" ? "حُفظت المرحلة. يسري التغيير على العمليات الجديدة" : "Stage saved. The change applies to new operations" };
 }
 
@@ -424,6 +441,7 @@ export async function assignTasksAction(_prev: ActionResult | null, formData: Fo
   } catch (error) {
     return fail(locale, error);
   }
+  bust(tags.users);
   return { ok: true, message: locale === "ar" ? "حُفظت المهام" : "Tasks saved" };
 }
 
@@ -435,6 +453,7 @@ export async function deleteTypeAction(_prev: ActionResult | null, formData: For
   } catch (error) {
     return fail(locale, error);
   }
+  bust(tags.types, tags.directory);
   return { ok: true, message: locale === "ar" ? "نُقل نوع العملية إلى سجل المحذوفات" : "Operation type moved to the recycle bin" };
 }
 
@@ -446,6 +465,7 @@ export async function restoreTypeAction(_prev: ActionResult | null, formData: Fo
   } catch (error) {
     return fail(locale, error);
   }
+  bust(tags.types, tags.directory);
   return { ok: true, message: locale === "ar" ? "استُرجع نوع العملية" : "Operation type restored" };
 }
 
@@ -462,6 +482,7 @@ export async function addFundingTrancheAction(_prev: ActionResult | null, formDa
   } catch (error) {
     return fail(locale, error);
   }
+  bust(tags.finance, tags.operations, tags.needs);
   return { ok: true, message: locale === "ar" ? "أُضيفت دفعة الاعتماد" : "Funding tranche added" };
 }
 
@@ -482,6 +503,7 @@ export async function createNeedRequestAction(_prev: ActionResult | null, formDa
   } catch (error) {
     return fail(locale, error);
   }
+  bust(tags.needs, tags.shell);
   return { ok: true, message: locale === "ar" ? "أُرسل طلب الاحتياج" : "Needs request submitted" };
 }
 
@@ -508,6 +530,7 @@ export async function respondNeedRequestAction(_prev: ActionResult | null, formD
   } catch (error) {
     return fail(locale, error);
   }
+  bust(tags.needs, tags.shell, tags.finance, tags.operations);
   return { ok: true, message: locale === "ar" ? "حُفظ الرد على الطلب" : "Response saved" };
 }
 
@@ -519,6 +542,7 @@ export async function deleteUserAction(_prev: ActionResult | null, formData: For
   } catch (error) {
     return fail(locale, error);
   }
+  bust(tags.users, tags.departments);
   return { ok: true, message: locale === "ar" ? "حُذف الحساب" : "Account deleted" };
 }
 
@@ -530,5 +554,6 @@ export async function restoreUserAction(_prev: ActionResult | null, formData: Fo
   } catch (error) {
     return fail(locale, error);
   }
+  bust(tags.users, tags.departments);
   return { ok: true, message: locale === "ar" ? "استُرجع الحساب" : "Account restored" };
 }

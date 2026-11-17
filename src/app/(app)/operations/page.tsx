@@ -2,12 +2,12 @@ import Link from "next/link";
 import { CreateOperationModal } from "@/components/create-operation-modal";
 import { FilterBar } from "@/components/filter-bar";
 import { Pager } from "@/components/pager";
-import { PageHeader, StatusChip } from "@/components/ui";
+import { DerivedStatusChip, PageHeader } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { formatMoney } from "@/lib/money";
 import { getLocale } from "@/lib/locale";
-import { derivedStatusLabel, statusFilterOptionsForRole } from "@/lib/operation-status";
+import { statusFilterOptionsForRole } from "@/lib/operation-status";
 import { getPageSize } from "@/lib/page-size";
 import { pageOf } from "@/lib/paging";
 import { can, isDepartmentRole } from "@/lib/permissions";
@@ -180,11 +180,7 @@ export default async function OperationsPage({
                   </td>
                   <td className="num">{formatMoney(item.amount, locale)}</td>
                   <td>
-                    <StatusChip locale={locale} status={item.status} />
-                    <div className="fine">
-                      {derivedStatusLabel(locale, item.derivedStatus)}
-                      {item.daysLate ? tx(locale, ` · +${item.daysLate} يوم`, ` · +${item.daysLate}d`) : ""}
-                    </div>
+                    <DerivedStatusChip locale={locale} status={item.derivedStatus} daysLate={item.daysLate} />
                   </td>
                 </tr>
               ))

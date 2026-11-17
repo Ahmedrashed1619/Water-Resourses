@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Pager } from "@/components/pager";
+import { RevisionSeenButton } from "@/components/revision-actions";
 import { PageHeader } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
 import { formatDate, formatStamp } from "@/lib/format";
@@ -25,7 +26,11 @@ export default async function RevisionsPage({ searchParams }: { searchParams: Pr
   return (
     <>
       <PageHeader kicker={tx(locale, "اطلاع", "Review")} title={tx(locale, "تعديلات المواعيد", "Date revisions")} lede={tx(locale, "الإدارة تعدل البدء أو النهو وتكتب السبب فورًا. القطاع يطلع على السبب دون بوابة موافقة.", "A department changes the start or finish and must write a reason. The Sector reviews the reason; there is no approval gate.")}>
-        <form action={markRevisionsSeenAction}><button className="btn btn-primary" type="submit">{tx(locale, `تعليم الكل (${unseen})`, `Mark all seen (${unseen})`)}</button></form>
+        <form action={markRevisionsSeenAction}>
+          <button className="btn btn-primary" type="submit">
+            {tx(locale, `رؤية الكل (${unseen})`, `Mark all seen (${unseen})`)}
+          </button>
+        </form>
       </PageHeader>
       <div className="table-wrap">
         <table className="data">
@@ -40,27 +45,48 @@ export default async function RevisionsPage({ searchParams }: { searchParams: Pr
             </tr>
           </thead>
           <tbody>
-            {view.total === 0 ? <tr><td colSpan={6} className="empty">{tx(locale, "لا تعديلات مسجلة.", "No revisions yet.")}</td></tr> : view.rows.map((row) => (
-              <tr key={row.id}>
-                <td>{formatStamp(row.createdAt, locale)}<div className="fine">{locName(locale, row.actorAr, row.actorEn)}</div></td>
-                <td><Link className="link" href={`/operations/${row.operationId}`}>{locName(locale, row.operationAr, row.operationEn)}</Link></td>
-                <td>{locName(locale, row.departmentAr, row.departmentEn)}<div className="fine">{locName(locale, row.stageAr, row.stageEn)}</div></td>
-                <td>
-                  <span className="chip gold">{changeKindLabel(locale, row.kind)}</span>{" "}
-                  {fieldLabel(locale, row.field)}
-                  {row.kind === "STAGE_ADDED" ? null : <div className="num">{formatDate(row.oldDate)} → {formatDate(row.newDate)}</div>}
-                </td>
-                <td>{row.reason || "—"}</td>
-                <td>
-                  {row.seenAt ? <span className="chip completed">{tx(locale, "شوهد", "Seen")}</span> : (
-                    <form action={markRevisionsSeenAction}>
-                      <input type="hidden" name="id" value={row.id} />
-                      <button className="btn btn-gold btn-sm" type="submit">{tx(locale, "تمت المشاهدة", "Mark seen")}</button>
-                    </form>
-                  )}
+            {view.total === 0 ? (
+              <tr>
+                <td colSpan={6} className="empty">
+                  {tx(locale, "لا تعديلات مسجلة.", "No revisions yet.")}
                 </td>
               </tr>
-            ))}
+            ) : (
+              view.rows.map((row) => (
+                <tr key={row.id}>
+                  <td>
+                    {formatStamp(row.createdAt, locale)}
+                    <div className="fine">{locName(locale, row.actorAr, row.actorEn)}</div>
+                  </td>
+                  <td>
+                    <Link className="link" href={`/operations/${row.operationId}`}>
+                      {locName(locale, row.operationAr, row.operationEn)}
+                    </Link>
+                  </td>
+                  <td>
+                    {locName(locale, row.departmentAr, row.departmentEn)}
+                    <div className="fine">{locName(locale, row.stageAr, row.stageEn)}</div>
+                  </td>
+                  <td>
+                    <span className="chip gold">{changeKindLabel(locale, row.kind)}</span>{" "}
+                    {fieldLabel(locale, row.field)}
+                    {row.kind === "STAGE_ADDED" ? null : (
+                      <div className="num">
+                        {formatDate(row.oldDate)} → {formatDate(row.newDate)}
+                      </div>
+                    )}
+                  </td>
+                  <td>{row.reason || "—"}</td>
+                  <td className="table-actions-cell">
+                    {row.seenAt ? (
+                      <span className="chip completed">{tx(locale, "شوهد", "Seen")}</span>
+                    ) : (
+                      <RevisionSeenButton id={row.id} />
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

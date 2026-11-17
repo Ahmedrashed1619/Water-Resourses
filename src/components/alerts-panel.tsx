@@ -7,6 +7,7 @@ import { alertLabel } from "@/lib/labels";
 import { deleteAlertAction, deleteAlertsBulkAction, restoreAlertAction } from "@/server/actions";
 import { BoundForm, FormMessage, SubmitButton } from "./form-bits";
 import { Modal } from "./modal";
+import { ActionIcon, ConfirmPopover } from "./table-actions";
 
 type AlertVM = {
   id: string;
@@ -98,17 +99,15 @@ export function AlertsPanel({
                   <td className="num">{formatDate(row.plannedDue)}</td>
                   <td>{daysPhrase(locale, row.daysLate)}</td>
                   {canManage ? (
-                    <td>
-                      <BoundForm
-                        action={async (prev, formData) => {
-                          if (!window.confirm(t("هل أنت متأكد من حذف هذا التنبيه؟", "Are you sure you want to delete this alert?"))) {
-                            return prev ?? { ok: false, message: "" };
-                          }
-                          return deleteAlertAction(prev, formData);
-                        }}
-                      >
+                    <td className="table-actions-cell">
+                      <BoundForm action={deleteAlertAction} silent>
                         <input type="hidden" name="id" value={row.id} />
-                        <SubmitButton className="btn btn-danger btn-sm" label={t("حذف", "Delete")} pendingLabel={d.common.saving} />
+                        <ConfirmPopover
+                          tip={t("حذف التنبيه", "Delete alert")}
+                          title={t("تأكيد الحذف", "Confirm delete")}
+                          message={t("هل أنت متأكد من حذف هذا التنبيه؟", "Are you sure you want to delete this alert?")}
+                          confirmLabel={t("نعم، احذف", "Yes, delete")}
+                        />
                       </BoundForm>
                     </td>
                   ) : null}
@@ -119,11 +118,7 @@ export function AlertsPanel({
         </table>
       </div>
 
-      <Modal
-        open={confirmBulk}
-        title={t("تأكيد الحذف", "Confirm delete")}
-        onClose={() => setConfirmBulk(false)}
-      >
+      <Modal open={confirmBulk} title={t("تأكيد الحذف", "Confirm delete")} onClose={() => setConfirmBulk(false)}>
         <form action={bulkAction} className="stack">
           {selected.map((id) => (
             <input key={id} type="hidden" name="ids" value={id} />
@@ -174,17 +169,10 @@ export function AlertsPanel({
                       <td>{row.deletedByAr || row.deletedByEn ? name(row.deletedByAr ?? "", row.deletedByEn ?? "") : "—"}</td>
                       <td className="num">{row.deletedAt ? formatStamp(row.deletedAt, locale) : "—"}</td>
                       {canManage ? (
-                        <td>
-                          <BoundForm
-                            action={async (prev, formData) => {
-                              if (!window.confirm(t("استرجاع هذا التنبيه؟", "Restore this alert?"))) {
-                                return prev ?? { ok: false, message: "" };
-                              }
-                              return restoreAlertAction(prev, formData);
-                            }}
-                          >
+                        <td className="table-actions-cell">
+                          <BoundForm action={restoreAlertAction} silent>
                             <input type="hidden" name="id" value={row.id} />
-                            <SubmitButton label={t("استرجاع", "Restore")} pendingLabel={d.common.saving} />
+                            <ActionIcon tip={t("استرجاع", "Restore")} icon="restore" tone="primary" type="submit" />
                           </BoundForm>
                         </td>
                       ) : null}

@@ -2,8 +2,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ReportStudio } from "@/components/report-studio";
 import { SelectBox } from "@/components/select-box";
-import { PageHeader } from "@/components/ui";
+import { PageHeader, StatusChip } from "@/components/ui";
 import { requireUser } from "@/lib/auth";
+import { formatDate } from "@/lib/format";
 import { getLocale } from "@/lib/locale";
 import { can } from "@/lib/permissions";
 import { filterOptions, listAlerts, listOperationExportRows } from "@/lib/queries";
@@ -22,7 +23,7 @@ export default async function ReportsPage({
   const locale = await getLocale();
   const query = await searchParams;
   const [alertRows, options, opRows] = await Promise.all([
-    canExport || canOverrun ? listAlerts(user, { departmentId: query.departmentId, stageCode: query.stage }) : Promise.resolve([]),
+    canExport ? listAlerts(user, { departmentId: query.departmentId, stageCode: query.stage }) : Promise.resolve([]),
     filterOptions(),
     canExport || canPrint
       ? listOperationExportRows(user, {
@@ -40,6 +41,9 @@ export default async function ReportsPage({
   if (query.department) opQs.set("department", query.department);
   if (query.status) opQs.set("status", query.status);
   const opQuery = opQs.toString() ? `?${opQs}` : "";
+  const overdueQs = new URLSearchParams(opQs);
+  overdueQs.set("overdue", "1");
+  const overdueQuery = `?${overdueQs}`;
 
   return (
     <>
@@ -48,14 +52,23 @@ export default async function ReportsPage({
         title={tx(locale, "التقارير", "Reports")}
         lede={tx(
           locale,
-          "تصدير Excel وطباعة للعمليات المصفاة، وتقرير التجاوز للقطاع.",
-          "Excel export and print for filtered operations, plus the Sector overrun report.",
+          "قسمان فقط: تقرير العمليات (جدول العمليات)، وتقرير التنبيهات (جدول التأخير).",
+          "Only two reports: operations (the operations table), and alerts (the delay table).",
         )}
       />
 
       {(canExport || canPrint) && (
         <section className="card card-pad stack">
-          <h2>{tx(locale, "تقرير العمليات", "Operations report")}</h2>
+          <div>
+            <h2>{tx(locale, "1) تقرير العمليات", "1) Operations report")}</h2>
+            <p className="note">
+              {tx(
+                locale,
+                "يصدّر قائمة العمليات نفسها اللي في شاشة العمليات — مع الفلاتر. استخدم «المتأخر فقط» لو عايز تجاوز المدة.",
+                "Exports the same operations list as the Operations screen — with filters. Use “Overdue only” for overrun.",
+              )}
+            </p>
+          </div>
           <form className="filters" action="/reports">
             <label className="field">
               <span>{tx(locale, "بحث", "Search")}</span>
@@ -106,49 +119,95 @@ export default async function ReportsPage({
               {tx(locale, "تصفية", "Filter")}
             </button>
           </form>
-          <div className="row">
+          <div className="row report-actions">
             {canExport || canOverrun ? (
               <a className="btn btn-primary" href={`/api/reports/operations-excel${opQuery}`}>
-                {tx(locale, "تصدير Excel", "Export Excel")}
+                {tx(locale, "Excel العمليات", "Operations Excel")}
               </a>
             ) : null}
             {canPrint ? (
               <Link className="btn btn-ghost" href={`/print/operations${opQuery}`} target="_blank">
-                {tx(locale, "طباعة", "Print")}
+                {tx(locale, "طباعة العمليات", "Print operations")}
               </Link>
             ) : null}
-            <span className="fine">
-              {tx(locale, `${opRows.length} صف`, `${opRows.length} rows`)}
-            </span>
+            {canOverrun ? (
+              <a className="btn btn-gold" href={`/api/reports/operations-excel${overdueQuery}`}>
+                {tx(locale, "Excel المتأخر فقط", "Overdue Excel only")}
+              </a>
+            ) : null}
+            <span className="fine">{tx(locale, `${opRows.length} صف`, `${opRows.length} rows`)}</span>
+          </div>
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>{tx(locale, "العملية", "Operation")}</th>
+                  <th>{tx(locale, "النوع", "Type")}</th>
+                  <th>{tx(locale, "الإدارة", "Department")}</th>
+                  <th>{tx(locale, "الاعتماد", "Approval")}</th>
+                  <th>{tx(locale, "الحالة", "Status")}</th>
+                  <th>{tx(locale, "المعتمد", "Approved")}</th>
+                  <th>{tx(locale, "الحالي", "Current")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {opRows.length === 0 ? (
+                  <tr>
+                    <td className="empty" colSpan={7}>
+                      {tx(locale, "لا توجد صفوف مطابقة للفلاتر.", "No rows match the filters.")}
+                    </td>
+                  </tr>
+                ) : (
+                  opRows.map((row, index) => (
+                    <tr key={`${row.operationId}-${row.departmentAr}-${index}`}>
+                      <td>{locName(locale, row.operationAr, row.operationEn)}</td>
+                      <td>{locName(locale, row.typeAr, row.typeEn)}</td>
+                      <td>{locName(locale, row.departmentAr, row.departmentEn)}</td>
+                      <td>{formatDate(row.approvalDate)}</td>
+                      <td>
+                        <StatusChip locale={locale} status={row.status} />
+                      </td>
+                      <td>{row.approvedAmount}</td>
+                      <td>{row.currentAmount}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </section>
       )}
 
-      {canOverrun ? (
+      {canExport ? (
         <section className="card card-pad stack">
-          <h2>{tx(locale, "تقرير التجاوز", "Overrun report")}</h2>
-          <p className="note">
-            {tx(locale, "عمليات متأخرة فقط — Excel وطباعة.", "Overdue operations only — Excel and print.")}
-          </p>
-          <div className="row">
-            <a className="btn btn-primary" href="/api/reports/operations-excel?overdue=1">
-              {tx(locale, "Excel التجاوز", "Overrun Excel")}
-            </a>
-            <Link className="btn btn-ghost" href="/print/operations?overdue=1" target="_blank">
-              {tx(locale, "طباعة التجاوز", "Print overrun")}
-            </Link>
-            {(canExport || canOverrun) && (
-              <>
-                <a className="btn" href={`/api/reports/excel${alertSearch}`}>
-                  {tx(locale, "تنبيهات Excel", "Alerts Excel")}
-                </a>
-                <a className="btn" href={`/api/reports/word${alertSearch}`}>
-                  {tx(locale, "تنبيهات Word", "Alerts Word")}
-                </a>
-              </>
-            )}
+          <div>
+            <h2>{tx(locale, "2) تقرير التنبيهات", "2) Alerts report")}</h2>
+            <p className="note">
+              {tx(
+                locale,
+                "ده جدول مختلف: تنبيهات التأخير (مش قائمة العمليات). تنزّله Excel أو Word أو صورة من المعاينة.",
+                "A different table: delay alerts (not the operations list). Download Excel, Word, or an image of the preview.",
+              )}
+            </p>
           </div>
-          {canExport ? <ReportStudio rows={alertRows} query={alertSearch} /> : null}
+          <ReportStudio rows={alertRows} query={alertSearch} />
+        </section>
+      ) : canOverrun ? (
+        <section className="card card-pad stack">
+          <div>
+            <h2>{tx(locale, "تصدير المتأخر", "Overdue export")}</h2>
+            <p className="note">{tx(locale, "عمليات متأخرة فقط.", "Overdue operations only.")}</p>
+          </div>
+          <div className="row report-actions">
+            <a className="btn btn-primary" href="/api/reports/operations-excel?overdue=1">
+              {tx(locale, "Excel المتأخر", "Overdue Excel")}
+            </a>
+            {canPrint ? (
+              <Link className="btn btn-ghost" href="/print/operations?overdue=1" target="_blank">
+                {tx(locale, "طباعة المتأخر", "Print overdue")}
+              </Link>
+            ) : null}
+          </div>
         </section>
       ) : null}
     </>

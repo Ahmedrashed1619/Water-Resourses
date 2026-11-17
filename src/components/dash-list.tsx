@@ -13,21 +13,25 @@ export function DashListItem({
   href,
   title,
   meta,
+  tone,
   trailing,
 }: {
   href: string;
   title: string;
   meta: string;
-  trailing: ReactNode;
+  /** Left accent bar — no duplicate label chip. */
+  tone?: "overdue" | "revision" | "new";
+  /** Optional compact meta on the side (e.g. +days). Avoid long chips. */
+  trailing?: ReactNode;
 }) {
   return (
     <li>
-      <Link className="dash-list-link" href={href}>
-        <span>
+      <Link className={`dash-list-link${tone ? ` is-${tone}` : ""}${trailing ? " has-trailing" : ""}`} href={href}>
+        <span className="dash-list-copy">
           <b>{title}</b>
           <small>{meta}</small>
         </span>
-        {trailing}
+        {trailing ? <span className="dash-list-trailing">{trailing}</span> : null}
       </Link>
     </li>
   );

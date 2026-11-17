@@ -5,6 +5,7 @@ import { useI18n } from "@/i18n/context";
 import { createTypeAction, deleteTypeAction, restoreTypeAction } from "@/server/actions";
 import { BoundForm, FormMessage, SubmitButton } from "./form-bits";
 import { Modal, useCloseWhenSaved } from "./modal";
+import { ActionIcon, ConfirmPopover } from "./table-actions";
 
 type OpType = {
   id: string;
@@ -18,7 +19,6 @@ type OpType = {
 export function TypeStudio({ types }: { types: OpType[] }) {
   const { t, name, d } = useI18n();
   const [creatingType, setCreatingType] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<OpType | null>(null);
   const active = types.filter((item) => !item.deletedAt);
   const deleted = types.filter((item) => item.deletedAt);
 
@@ -66,11 +66,20 @@ export function TypeStudio({ types }: { types: OpType[] }) {
                       <span className="chip">{t("مضاف", "Added")}</span>
                     )}
                   </td>
-                  <td>
+                  <td className="table-actions-cell">
                     {!type.isSystem ? (
-                      <button className="btn btn-danger btn-sm" type="button" onClick={() => setPendingDelete(type)}>
-                        {d.common.delete}
-                      </button>
+                      <BoundForm action={deleteTypeAction} silent>
+                        <input type="hidden" name="id" value={type.id} />
+                        <ConfirmPopover
+                          tip={d.common.delete}
+                          title={t("حذف نوع العملية؟", "Delete this operation type?")}
+                          message={t(
+                            `هل أنت متأكد من حذف «${name(type.nameAr, type.nameEn)}»؟ العمليات الحالية تبقى تعمل.`,
+                            `Delete “${name(type.nameAr, type.nameEn)}”? Existing operations keep working.`,
+                          )}
+                          confirmLabel={t("نعم، احذف", "Yes, delete")}
+                        />
+                      </BoundForm>
                     ) : null}
                   </td>
                 </tr>
@@ -101,10 +110,10 @@ export function TypeStudio({ types }: { types: OpType[] }) {
                     <td>{name(type.nameAr, type.nameEn)}</td>
                     <td>{type.deletedByName ?? "—"}</td>
                     <td className="num">{type.deletedAt ? new Date(type.deletedAt).toLocaleDateString() : "—"}</td>
-                    <td>
-                      <BoundForm action={restoreTypeAction} className="row">
+                    <td className="table-actions-cell">
+                      <BoundForm action={restoreTypeAction} silent>
                         <input type="hidden" name="id" value={type.id} />
-                        <SubmitButton label={t("استرجاع", "Restore")} pendingLabel={d.common.saving} />
+                        <ActionIcon tip={t("استرجاع", "Restore")} icon="restore" tone="primary" type="submit" />
                       </BoundForm>
                     </td>
                   </tr>
@@ -116,36 +125,7 @@ export function TypeStudio({ types }: { types: OpType[] }) {
       </section>
 
       <TypeModal open={creatingType} onClose={() => setCreatingType(false)} />
-      <DeleteTypeModal type={pendingDelete} onClose={() => setPendingDelete(null)} />
     </section>
-  );
-}
-
-function DeleteTypeModal({ type, onClose }: { type: OpType | null; onClose: () => void }) {
-  const { t, d, name } = useI18n();
-  const [state, action] = useActionState(deleteTypeAction, null);
-  useCloseWhenSaved(state, onClose);
-  return (
-    <Modal
-      open={Boolean(type)}
-      title={t("حذف نوع العملية؟", "Delete this operation type?")}
-      subtitle={type ? name(type.nameAr, type.nameEn) : undefined}
-      onClose={onClose}
-    >
-      <form action={action} className="stack">
-        <input type="hidden" name="id" value={type?.id ?? ""} />
-        <p className="note">
-          {t("هل أنت متأكد من حذف هذا النوع؟ نعم / لا — العمليات الحالية تبقى تعمل.", "Are you sure? Yes / No — existing operations keep working.")}
-        </p>
-        <div className="row">
-          <SubmitButton className="btn btn-danger" label={t("نعم", "Yes")} pendingLabel={d.common.saving} />
-          <button className="btn btn-ghost" type="button" onClick={onClose}>
-            {t("لا", "No")}
-          </button>
-        </div>
-        <FormMessage result={state} />
-      </form>
-    </Modal>
   );
 }
 

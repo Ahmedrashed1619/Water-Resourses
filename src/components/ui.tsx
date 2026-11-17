@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { statusHint, statusLabel } from "@/lib/labels";
+import { derivedStatusLabel, derivedToLegacyChip, type DerivedOpStatus } from "@/lib/operation-status";
 import type { StageVisualStatus } from "@/lib/rules";
 import type { Locale } from "@/lib/text";
 import { diffDays } from "@/lib/dates";
@@ -27,6 +28,34 @@ export function StatusChip({ locale, status }: { locale: Locale; status: StageVi
     <Tip text={hint}>
       <span className={`chip ${status}`} tabIndex={0} aria-label={`${label}. ${hint}`}>
         {label}
+      </span>
+    </Tip>
+  );
+}
+
+/** Single operation-status chip (no duplicate legacy + derived labels). */
+export function DerivedStatusChip({
+  locale,
+  status,
+  daysLate = 0,
+}: {
+  locale: Locale;
+  status: DerivedOpStatus;
+  daysLate?: number;
+}) {
+  const label = derivedStatusLabel(locale, status);
+  const chip = derivedToLegacyChip(status);
+  const extra =
+    status === "LATE" && daysLate > 0
+      ? locale === "ar"
+        ? ` · +${daysLate} يوم`
+        : ` · +${daysLate}d`
+      : "";
+  const text = `${label}${extra}`;
+  return (
+    <Tip text={text}>
+      <span className={`chip ${chip}`} tabIndex={0} aria-label={text}>
+        {text}
       </span>
     </Tip>
   );

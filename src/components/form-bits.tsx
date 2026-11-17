@@ -17,16 +17,19 @@ export function BoundForm({
   action,
   children,
   className,
+  silent = false,
 }: {
   action: (prev: ActionResult | null, formData: FormData) => Promise<ActionResult>;
   children: React.ReactNode;
   className?: string;
+  /** Hide inline result banners (useful inside table action cells). */
+  silent?: boolean;
 }) {
   const [state, formAction] = useActionState(action, null);
   return (
     <form action={formAction} className={className}>
       {children}
-      <FormMessage result={state} />
+      {silent ? null : <FormMessage result={state} />}
     </form>
   );
 }

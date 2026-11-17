@@ -33,10 +33,16 @@ export function ReportStudio({ rows, query }: { rows: AlertRow[]; query: string 
 
   return (
     <div className="stack">
-      <div className="row">
-        <a className="btn btn-primary" href={`/api/reports/excel${query}`}>{d.common.exportExcel}</a>
-        <a className="btn btn-ghost" href={`/api/reports/word${query}`}>{d.common.exportWord}</a>
-        <button className="btn btn-gold" type="button" onClick={downloadPng} disabled={busy}>{busy ? d.common.saving : d.common.exportPng}</button>
+      <div className="row report-actions">
+        <a className="btn btn-primary" href={`/api/reports/excel${query}`}>
+          {t("تنزيل جدول Excel", "Download Excel table")}
+        </a>
+        <a className="btn btn-ghost" href={`/api/reports/word${query}`}>
+          {t("تنزيل مستند Word", "Download Word document")}
+        </a>
+        <button className="btn btn-gold" type="button" onClick={downloadPng} disabled={busy}>
+          {busy ? d.common.saving : t("تنزيل صورة", "Download image")}
+        </button>
       </div>
       {error ? <p className="banner err">{error}</p> : null}
       <div className="sheet" ref={sheet}>

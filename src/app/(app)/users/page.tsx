@@ -9,10 +9,9 @@ import { roleHint, roleLabel, statusHint } from "@/lib/labels";
 import { getLocale } from "@/lib/locale";
 import { getPageSize } from "@/lib/page-size";
 import { pageOf } from "@/lib/paging";
-import { BoundForm, SubmitButton } from "@/components/form-bits";
+import { UserRestoreButton } from "@/components/user-restore-button";
 import { assignableTaskKeys, can, canSeeUserAccount, creatableRoles, grantsOf, isDepartmentRole, parseTasks, rankOf } from "@/lib/permissions";
 import { listDirectory, listUsers } from "@/lib/queries";
-import { restoreUserAction } from "@/server/actions";
 import { locName, tx } from "@/lib/text";
 
 export default async function UsersPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
@@ -122,11 +121,8 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
                     </td>
                     <td>{roleLabel(locale, account.role)}</td>
                     <td className="num">{account.deletedAt ? account.deletedAt.toISOString().slice(0, 10) : "—"}</td>
-                    <td>
-                      <BoundForm action={restoreUserAction}>
-                        <input type="hidden" name="id" value={account.id} />
-                        <SubmitButton label={tx(locale, "استرجاع", "Restore")} pendingLabel={tx(locale, "جارٍ الحفظ", "Saving")} />
-                      </BoundForm>
+                    <td className="table-actions-cell">
+                      <UserRestoreButton id={account.id} />
                     </td>
                   </tr>
                 ))}
