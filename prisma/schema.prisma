@@ -17,54 +17,65 @@ model Sector {
 }
 
 model Department {
-  id          String                @id @default(cuid())
-  sectorId    String
-  sector      Sector                @relation(fields: [sectorId], references: [id])
-  code        String                @unique
-  nameAr      String
-  nameEn      String
-  sortOrder   Int
-  isActive    Boolean               @default(true)
-  createdAt   DateTime              @default(now())
-  users       User[]
-  assignments OperationDepartment[]
+  id           String                 @id @default(cuid())
+  sectorId     String
+  sector       Sector                 @relation(fields: [sectorId], references: [id])
+  code         String                 @unique
+  nameAr       String
+  nameEn       String
+  sortOrder    Int
+  isActive     Boolean                @default(true)
+  createdAt    DateTime               @default(now())
+  users        User[]
+  assignments  OperationDepartment[]
+  needRequests OperationNeedRequest[]
 
   @@index([sectorId])
 }
 
 model User {
-  id           String               @id @default(cuid())
-  email        String               @unique
-  passwordHash String
-  nameAr       String
-  nameEn       String
-  role         String
-  tasks        String?
-  departmentId String?
-  department   Department?          @relation(fields: [departmentId], references: [id])
-  isActive     Boolean              @default(true)
-  createdAt    DateTime             @default(now())
-  updatedAt    DateTime             @updatedAt
-  operations   Operation[]          @relation("OperationCreator")
-  adjustments  FinancialAdjustment[] @relation("AdjustmentAuthor")
-  dateChanges  StageDateChange[]    @relation("DateChangeAuthor")
-  audits       AuditLog[]           @relation("AuditActor")
+  id                 String                  @id @default(cuid())
+  email              String                  @unique
+  passwordHash       String
+  nameAr             String
+  nameEn             String
+  role               String
+  tasks              String?
+  departmentId       String?
+  department         Department?             @relation(fields: [departmentId], references: [id])
+  isActive           Boolean                 @default(true)
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  operations         Operation[]             @relation("OperationCreator")
+  adjustments        FinancialAdjustment[]   @relation("AdjustmentAuthor")
+  dateChanges        StageDateChange[]       @relation("DateChangeAuthor")
+  audits             AuditLog[]              @relation("AuditActor")
+  deletedTypes       OperationType[]         @relation("OperationTypeDeletedBy")
+  fundingTranches    FundingTranche[]        @relation("FundingTrancheAuthor")
+  needRequestsCreated OperationNeedRequest[] @relation("NeedRequestCreator")
+  needRequestsReviewed OperationNeedRequest[] @relation("NeedRequestReviewer")
 
   @@index([role])
   @@index([departmentId])
 }
 
 model OperationType {
-  id         String            @id @default(cuid())
-  code       String            @unique
-  nameAr     String
-  nameEn     String
-  isSystem   Boolean           @default(false)
-  isActive   Boolean           @default(true)
-  sortOrder  Int
-  createdAt  DateTime          @default(now())
-  stages     StageDefinition[]
-  operations Operation[]
+  id           String                 @id @default(cuid())
+  code         String                 @unique
+  nameAr       String
+  nameEn       String
+  isSystem     Boolean                @default(false)
+  isActive     Boolean                @default(true)
+  sortOrder    Int
+  createdAt    DateTime               @default(now())
+  deletedAt    DateTime?
+  deletedById  String?
+  deletedBy    User?                  @relation("OperationTypeDeletedBy", fields: [deletedById], references: [id])
+  stages       StageDefinition[]
+  operations   Operation[]
+  needRequests OperationNeedRequest[]
+
+  @@index([deletedAt])
 }
 
 model StageDefinition {
@@ -86,19 +97,20 @@ model StageDefinition {
 }
 
 model Operation {
-  id                    String                @id @default(cuid())
+  id                    String                 @id @default(cuid())
   nameAr                String
-  nameEn                String                @default("")
+  nameEn                String                 @default("")
   operationTypeId       String
-  operationType         OperationType         @relation(fields: [operationTypeId], references: [id])
+  operationType         OperationType          @relation(fields: [operationTypeId], references: [id])
   technicalApprovalDate DateTime
   createdById           String
-  createdBy             User                  @relation("OperationCreator", fields: [createdById], references: [id])
-  isDeleted             Boolean               @default(false)
+  createdBy             User                   @relation("OperationCreator", fields: [createdById], references: [id])
+  isDeleted             Boolean                @default(false)
   deletedAt             DateTime?
-  createdAt             DateTime              @default(now())
-  updatedAt             DateTime              @updatedAt
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
   assignments           OperationDepartment[]
+  linkedNeedRequests    OperationNeedRequest[]
 
   @@index([isDeleted])
   @@index([operationTypeId])
@@ -120,6 +132,7 @@ model OperationDepartment {
   updatedAt      DateTime                  @updatedAt
   adjustments    FinancialAdjustment[]
   progress       DepartmentStageProgress[]
+  fundingTranches FundingTranche[]
 
   @@unique([operationId, departmentId])
   @@index([departmentId])
@@ -136,6 +149,22 @@ model FinancialAdjustment {
   createdBy             User                @relation("AdjustmentAuthor", fields: [createdById], references: [id])
   createdAt             DateTime            @default(now())
 
+  @@index([operationDepartmentId])
+}
+
+model FundingTranche {
+  id                    String              @id @default(cuid())
+  operationDepartmentId String
+  operationDepartment   OperationDepartment @relation(fields: [operationDepartmentId], references: [id], onDelete: Cascade)
+  sequence              Int
+  sentAt                DateTime
+  amount                String              @default("0.00")
+  note                  String?
+  createdById           String
+  createdBy             User                @relation("FundingTrancheAuthor", fields: [createdById], references: [id])
+  createdAt             DateTime            @default(now())
+
+  @@unique([operationDepartmentId, sequence])
   @@index([operationDepartmentId])
 }
 
@@ -188,6 +217,36 @@ model Alert {
 
   @@unique([progressId, type])
   @@index([audience, isDeleted, resolvedAt])
+}
+
+model OperationNeedRequest {
+  id                   String      @id @default(cuid())
+  departmentId         String
+  department           Department  @relation(fields: [departmentId], references: [id])
+  operationTypeId      String
+  operationType        OperationType @relation(fields: [operationTypeId], references: [id])
+  title                String
+  description          String?
+  requirements         String
+  requestedSupport     String
+  estimatedValue       String?
+  desiredStartDate     DateTime?
+  expectedDurationDays Int?
+  status               String      @default("SUBMITTED")
+  createdById          String
+  createdBy            User        @relation("NeedRequestCreator", fields: [createdById], references: [id])
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+  reviewedById         String?
+  reviewedBy           User?       @relation("NeedRequestReviewer", fields: [reviewedById], references: [id])
+  reviewedAt           DateTime?
+  decisionNote         String?
+  approvedAmount       String?
+  linkedOperationId    String?
+  linkedOperation      Operation?  @relation(fields: [linkedOperationId], references: [id])
+
+  @@index([departmentId, status])
+  @@index([status])
 }
 
 model AuditLog {

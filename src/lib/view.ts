@@ -42,6 +42,14 @@ export type AdjustmentVM = {
   createdAt: string;
 };
 
+export type FundingTrancheVM = {
+  id: string;
+  sequence: number;
+  sentAt: string;
+  amount: string;
+  note: string | null;
+};
+
 export type AssignmentVM = {
   id: string;
   departmentId: string;
@@ -55,6 +63,7 @@ export type AssignmentVM = {
   modifiedStart: string | null;
   modifiedEnd: string | null;
   adjustments: AdjustmentVM[];
+  fundingTranches: FundingTrancheVM[];
   stages: StageVM[];
   status: StageVisualStatus;
 };
@@ -94,6 +103,8 @@ export type AlertRow = {
   operationId: string;
   operationAr: string;
   operationEn: string;
+  operationTypeAr: string;
+  operationTypeEn: string;
   departmentId: string;
   departmentAr: string;
   departmentEn: string;
@@ -120,6 +131,26 @@ export type DeptStat = {
 export type ChartSlice = { key: string; labelAr: string; labelEn: string; value: number; tone: string };
 export type ChartBar = { id: string; labelAr: string; labelEn: string; value: number; secondary: number };
 
+export type OverdueGroup = {
+  departmentId: string;
+  departmentAr: string;
+  departmentEn: string;
+  typeAr: string;
+  typeEn: string;
+  count: number;
+  items: { operationId: string; operationAr: string; operationEn: string; daysLate: number }[];
+};
+
+export type RecentFeedItem = {
+  kind: "overdue" | "new" | "revision";
+  href: string;
+  titleAr: string;
+  titleEn: string;
+  metaAr: string;
+  metaEn: string;
+  at: string;
+};
+
 export type DashboardData = {
   kpis: {
     activeOperations: number;
@@ -137,4 +168,7 @@ export type DashboardData = {
     alerts: ChartSlice[];
     departments: ChartBar[];
   };
+  overdueGroups: OverdueGroup[];
+  recentFeed: RecentFeedItem[];
+  isSector: boolean;
 };

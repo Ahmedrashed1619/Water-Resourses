@@ -10,7 +10,14 @@ import { logoutAction } from "@/server/actions";
 import { Tip } from "./tip";
 import { LocaleToggle, ThemeToggle } from "./toggles";
 
-type Item = { href: string; key: "dashboard" | "operations" | "departments" | "finance" | "alerts" | "reports" | "revisions" | "users" | "settings" | "audit" | "model"; icon: string; permission?: Permission; badge?: "alerts" | "revisions" };
+type Item = {
+  href: string;
+  key: "dashboard" | "operations" | "departments" | "finance" | "alerts" | "reports" | "revisions" | "users" | "settings" | "audit" | "needs";
+  icon: string;
+  permission?: Permission;
+  anyOf?: Permission[];
+  badge?: "alerts" | "revisions" | "needs";
+};
 
 const ITEMS: Item[] = [
   { href: "/", key: "dashboard", icon: "M4 4h6v6H4zm10 0h6v6h-6zM4 14h6v6H4zm10 0h6v6h-6z" },
@@ -18,12 +25,12 @@ const ITEMS: Item[] = [
   { href: "/departments", key: "departments", icon: "M4 18V8l8-4 8 4v10M9 18v-5h6v5", permission: "departments.view" },
   { href: "/finance", key: "finance", icon: "M5 8h14v9H5zM8 8V6h8v2M8 12h4", permission: "finance.manage" },
   { href: "/alerts", key: "alerts", icon: "M12 4a5 5 0 0 1 5 5v3l1.5 2.5h-13L7 12V9a5 5 0 0 1 5-5zM10 18a2 2 0 0 0 4 0", badge: "alerts" },
-  { href: "/reports", key: "reports", icon: "M7 3h7l5 5v13H7zM14 3v5h5", permission: "reports.export" },
+  { href: "/reports", key: "reports", icon: "M7 3h7l5 5v13H7zM14 3v5h5", anyOf: ["reports.export", "reports.print", "reports.overrun"] },
   { href: "/revisions", key: "revisions", icon: "M5 12a7 7 0 1 0 2-4.9M5 4v4h4", permission: "revisions.view", badge: "revisions" },
+  { href: "/needs", key: "needs", icon: "M12 3v18M5 10h14M7 16h10", anyOf: ["needs.view", "needs.create", "needs.respond"], badge: "needs" },
   { href: "/users", key: "users", icon: "M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM4 19a5 5 0 0 1 10 0M17 11a2.5 2.5 0 1 0 0-5M16 19a4.5 4.5 0 0 1 4-4", permission: "users.manage" },
   { href: "/settings", key: "settings", icon: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM4 12h3M17 12h3M12 4v3M12 17v3" },
   { href: "/audit", key: "audit", icon: "M6 5h12v14H6zM9 9h6M9 13h6", permission: "audit.view" },
-  { href: "/settings/model", key: "model", icon: "M5 6h6v5H5zM13 6h6v5h-6zM5 14h6v5H5zM13 14h6v5h-6z", permission: "settings.types" },
 ];
 
 export function Shell({
@@ -41,7 +48,7 @@ export function Shell({
   name: string;
   email: string;
   department: string | null;
-  counts: { alerts: number; revisions: number };
+  counts: { alerts: number; revisions: number; needs: number };
   today: string;
   children: React.ReactNode;
 }) {
@@ -50,7 +57,12 @@ export function Shell({
   const [collapsed, setCollapsed] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [wide, setWide] = useState(true);
-  const items = ITEMS.filter((item) => !item.permission || can({ role, tasks }, item.permission));
+  const actor = { role, tasks };
+  const items = ITEMS.filter((item) => {
+    if (item.anyOf?.length) return item.anyOf.some((key) => can(actor, key));
+    if (item.permission) return can(actor, item.permission);
+    return true;
+  });
   const iconOnly = wide && collapsed;
 
   useEffect(() => {

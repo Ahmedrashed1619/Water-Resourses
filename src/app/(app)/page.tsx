@@ -7,7 +7,7 @@ import { requireUser } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { formatMoney } from "@/lib/money";
 import { getLocale } from "@/lib/locale";
-import { can, isDepartmentRole } from "@/lib/permissions";
+import { can, isDepartmentRole, sectorFacingStatus } from "@/lib/permissions";
 import { getDashboard } from "@/lib/queries";
 import { locName, tx } from "@/lib/text";
 
@@ -17,7 +17,7 @@ export default async function DashboardPage() {
   const data = await getDashboard(user);
   const department = isDepartmentRole(user.role);
   const alertsHeading = "dash-alerts-heading";
-  const opsHeading = "dash-ops-heading";
+  const feedHeading = "dash-feed-heading";
 
   return (
     <>
@@ -26,14 +26,8 @@ export default async function DashboardPage() {
         title={department ? tx(locale, "عمليات الإدارة", "Department operations") : tx(locale, "متابعة التعاقدات", "Contract follow-up")}
         lede={department
           ? tx(locale, "ترى عمليات إدارتك فقط. تنبيها منتصف المدة وقبل خمسة أيام يصلان إليك، وتجاوز المدة يصل إلى القطاع.", "You only see your department. Halfway and five-day alerts come to you; overdue alerts go to the Sector.")
-          : tx(locale, "ثلاث وثلاثون إدارة. التأخير يُحسب على الموعد المخطط لكل مرحلة، والمرحلة المنتهية لا تُنبّه.", "Thirty-three departments. Delay is measured against each stage plan, and a completed stage raises no alert.")}
-      >
-        {can(user, "operations.manage") && !department ? (
-          <Link className="btn btn-primary page-cta" href="/operations?new=1">
-            {tx(locale, "عملية جديدة", "New operation")}
-          </Link>
-        ) : null}
-      </PageHeader>
+          : tx(locale, "التركيز على الإدارات المتأخرة وأسباب التأخير.", "Focus on late departments and why they are late.")}
+      />
 
       {department && data.kpis.delayedDepartments > 0 ? (
         <p className="banner warn" role="status">
@@ -55,12 +49,46 @@ export default async function DashboardPage() {
         />
       </section>
 
-      <DashboardCharts
-        status={data.charts.status}
-        types={data.charts.types}
-        alerts={data.charts.alerts}
-        departments={data.charts.departments}
-      />
+      {data.isSector ? (
+        <section className="card card-pad stack" aria-labelledby="overdue-panel">
+          <h2 id="overdue-panel">{tx(locale, "العمليات المتأخرة", "Overdue operations")}</h2>
+          <p className="note">{tx(locale, "عرض موحّد للتجاوز فقط، مجمّع حسب الإدارة ونوع العملية.", "Unified overdue-only view, grouped by department and operation type.")}</p>
+          {data.overdueGroups.length === 0 ? (
+            <p className="empty">{tx(locale, "لا تجاوزات مفتوحة.", "No open overruns.")}</p>
+          ) : (
+            <div className="stack">
+              {data.overdueGroups.map((group) => (
+                <div key={`${group.departmentId}-${group.typeAr}`} className="card card-pad stack" style={{ boxShadow: "none" }}>
+                  <div className="between">
+                    <b>{locName(locale, group.departmentAr, group.departmentEn)} · {locName(locale, group.typeAr, group.typeEn)}</b>
+                    <span className="chip overdue">{group.count}</span>
+                  </div>
+                  <ul className="dash-list">
+                    {group.items.map((item) => (
+                      <li key={`${item.operationId}-${item.daysLate}`}>
+                        <Link className="dash-list-link" href={`/operations/${item.operationId}?department=${group.departmentId}`}>
+                          <span>
+                            <b>{locName(locale, item.operationAr, item.operationEn)}</b>
+                            <small>{tx(locale, `متأخر +${item.daysLate}`, `Overdue +${item.daysLate}`)}</small>
+                          </span>
+                          <em className="num">+{item.daysLate}</em>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : (
+        <DashboardCharts
+          status={data.charts.status}
+          types={data.charts.types}
+          alerts={data.charts.alerts}
+          departments={data.charts.departments}
+        />
+      )}
 
       <section className="split">
         <div className="card card-pad stack">
@@ -75,9 +103,9 @@ export default async function DashboardPage() {
               {data.alerts.map((alert) => (
                 <DashListItem
                   key={alert.id}
-                  href={`/operations/${alert.operationId}`}
-                  title={locName(locale, alert.operationAr, alert.operationEn)}
-                  meta={`${locName(locale, alert.departmentAr, alert.departmentEn)} · ${locName(locale, alert.stageAr, alert.stageEn)}`}
+                  href={`/operations/${alert.operationId}?department=${alert.departmentId}`}
+                  title={`${locName(locale, alert.departmentAr, alert.departmentEn)} — ${locName(locale, alert.operationTypeAr, alert.operationTypeEn)}: ${locName(locale, alert.operationAr, alert.operationEn)}`}
+                  meta={locName(locale, alert.stageAr, alert.stageEn)}
                   trailing={<em className="num">{alert.daysLate > 0 ? `+${alert.daysLate}` : formatDate(alert.plannedDue)}</em>}
                 />
               ))}
@@ -86,18 +114,26 @@ export default async function DashboardPage() {
         </div>
 
         <div className="card card-pad stack">
-          <h2 id={opsHeading}>{tx(locale, "عمليات حديثة", "Recent operations")}</h2>
-          {data.operations.length === 0 ? (
-            <p className="empty">{tx(locale, "لم تُخصص عمليات بعد.", "No operations have been assigned yet.")}</p>
+          <h2 id={feedHeading}>{tx(locale, "العمليات الحديثة", "Recent activity")}</h2>
+          {data.recentFeed.length === 0 ? (
+            <p className="empty">{tx(locale, "لا أحداث حديثة.", "No recent activity.")}</p>
           ) : (
-            <DashList labelledBy={opsHeading}>
-              {data.operations.map((item) => (
+            <DashList labelledBy={feedHeading}>
+              {data.recentFeed.map((item, index) => (
                 <DashListItem
-                  key={item.id}
-                  href={`/operations/${item.id}`}
-                  title={locName(locale, item.nameAr, item.nameEn)}
-                  meta={`${formatDate(item.approvalDate)} · ${locName(locale, item.typeAr, item.typeEn)}`}
-                  trailing={<StatusChip locale={locale} status={item.status} />}
+                  key={`${item.kind}-${item.href}-${index}`}
+                  href={item.href}
+                  title={locName(locale, item.titleAr, item.titleEn)}
+                  meta={locName(locale, item.metaAr, item.metaEn)}
+                  trailing={
+                    <span className={`chip ${item.kind === "overdue" ? "overdue" : item.kind === "revision" ? "halfway" : "gold"}`}>
+                      {item.kind === "overdue"
+                        ? tx(locale, "متأخر", "Late")
+                        : item.kind === "revision"
+                          ? tx(locale, "تعديل", "Revision")
+                          : tx(locale, "جديد", "New")}
+                    </span>
+                  }
                 />
               ))}
             </DashList>
@@ -114,22 +150,25 @@ export default async function DashboardPage() {
         <section className="stack" aria-labelledby="dept-board-heading">
           <h2 id="dept-board-heading">{tx(locale, "خريطة الإدارات", "Department board")}</h2>
           <div className="dept-board">
-            {data.departments.map((item) => (
-              <Link key={item.id} href={`/departments/${item.id}`} className="dept-cell">
-                <span className={`dot ${item.status}`} aria-hidden="true" />
-                <span>
-                  <b>{locName(locale, item.nameAr, item.nameEn)}</b>
-                  <small>
-                    {item.operations === 0
-                      ? tx(locale, "بدون عمليات", "No operations")
-                      : item.operations === 1
-                        ? tx(locale, "عملية واحدة", "1 operation")
-                        : tx(locale, `${item.operations} عمليات`, `${item.operations} operations`)}
-                    {item.overdueStages ? tx(locale, ` · ${item.overdueStages} متأخرة`, ` · ${item.overdueStages} overdue`) : ""}
-                  </small>
-                </span>
-              </Link>
-            ))}
+            {data.departments.map((item) => {
+              const face = sectorFacingStatus(item.status);
+              return (
+                <Link key={item.id} href={`/departments/${item.id}`} className="dept-cell">
+                  <span className={`dot ${face === "overdue" ? "overdue" : face === "idle" ? "" : "on_track"}`} aria-hidden="true" />
+                  <span>
+                    <b>{locName(locale, item.nameAr, item.nameEn)}</b>
+                    <small>
+                      {item.operations === 0
+                        ? tx(locale, "بدون عمليات", "No operations")
+                        : face === "overdue"
+                          ? tx(locale, "متأخرة", "Overdue")
+                          : tx(locale, "في التنفيذ", "In execution")}
+                      {item.overdueStages ? tx(locale, ` · ${item.overdueStages} متأخرة`, ` · ${item.overdueStages} overdue`) : ""}
+                    </small>
+                  </span>
+                </Link>
+              );
+            })}
           </div>
         </section>
       ) : null}

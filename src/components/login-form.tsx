@@ -33,6 +33,7 @@ export function LoginForm() {
             <img src="/brand/sector.jpg" alt={locale === "ar" ? "شعار قطاع الري" : "Irrigation Sector logo"} />
           </div>
           <h1>{d.appName}</h1>
+          <p className="login-under-logo">{d.login.underLogo}</p>
           <hr className="gold-rule" />
           <p style={{ maxWidth: 380, margin: 0 }}>{d.tagline}</p>
           <p className="fine" style={{ color: "#d5e7ef", marginTop: 18 }}>

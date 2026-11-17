@@ -1,11 +1,13 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useI18n } from "@/i18n/context";
+import { diffDays } from "@/lib/dates";
 import { daysPhrase, formatDate, formatStamp } from "@/lib/format";
 import { formatMoney } from "@/lib/money";
 import { fieldLabel, statusLabel } from "@/lib/labels";
+import { warnPublicationToTechnicalGap, warnTechnicalOpeningPostponement } from "@/lib/needs-rules";
 import type { AssignmentVM, OperationDetail, StageVM } from "@/lib/view";
 import {
   adjustFinanceAction,
@@ -29,14 +31,20 @@ export function OperationWorkspace({
   operation,
   directory,
   canManage,
+  canExecuteStages = false,
+  canEditDates = false,
   isDepartment,
   today,
+  scopedDepartmentId = null,
 }: {
   operation: OperationDetail;
   directory: Dept[];
   canManage: boolean;
+  canExecuteStages?: boolean;
+  canEditDates?: boolean;
   isDepartment: boolean;
   today: string;
+  scopedDepartmentId?: string | null;
 }) {
   const { locale, t, name, d } = useI18n();
   const [renameState, rename] = useActionState(renameOperationAction, null);
@@ -55,16 +63,19 @@ export function OperationWorkspace({
           <h1>{name(operation.nameAr, operation.nameEn)}</h1>
           <p className="lede">
             {t("الموافقة الفنية", "Technical approval")} {formatDate(operation.approvalDate)} · {t("أنشأها", "Created by")} {name(operation.creatorAr, operation.creatorEn)}
+            {scopedDepartmentId ? ` · ${t("عرض مقصور على إدارة واحدة", "Scoped to one department")}` : ""}
           </p>
         </div>
         <StatusChip locale={locale} status={operation.status} />
       </header>
-      <p className="banner">
-        {t(
-          "المراحل الثلاث الأولى تُحسب من تاريخ الموافقة، والبت المالي يبدأ بعد الموعد المرجعي للفتح المالي. المواعيد المرجعية ثابتة، والمخطط هو ما تعدله الإدارة مع سبب.",
-          "The first three stages count from the approval date. Financial award starts after the financial-opening reference date. Baselines stay fixed; the department edits the plan with a reason.",
-        )}
-      </p>
+      {!scopedDepartmentId && isDepartment ? (
+        <p className="banner">
+          {t(
+            "المواعيد المرجعية ثابتة، والمخطط هو ما تعدله الإدارة مع سبب.",
+            "Baselines stay fixed; the department edits the plan with a reason.",
+          )}
+        </p>
+      ) : null}
       <div className="card card-pad">
         <StageTrack rows={trackRows} />
       </div>
@@ -86,7 +97,15 @@ export function OperationWorkspace({
         </form>
       ) : null}
       {operation.assignments.map((assignment) => (
-        <AssignmentCard key={assignment.id} assignment={assignment} canManage={canManage} isDepartment={isDepartment} today={today} />
+        <AssignmentCard
+          key={assignment.id}
+          assignment={assignment}
+          canManage={canManage}
+          canExecuteStages={canExecuteStages}
+          canEditDates={canEditDates}
+          isDepartment={isDepartment}
+          today={today}
+        />
       ))}
       {canManage ? <AssignMore operationId={operation.id} directory={directory.filter((item) => !operation.assignments.some((assignment) => assignment.departmentId === item.id))} approval={operation.approvalDate} /> : null}
       {canManage ? (
@@ -101,7 +120,21 @@ export function OperationWorkspace({
   );
 }
 
-function AssignmentCard({ assignment, canManage, isDepartment, today }: { assignment: AssignmentVM; canManage: boolean; isDepartment: boolean; today: string }) {
+function AssignmentCard({
+  assignment,
+  canManage,
+  canExecuteStages,
+  canEditDates,
+  isDepartment,
+  today,
+}: {
+  assignment: AssignmentVM;
+  canManage: boolean;
+  canExecuteStages: boolean;
+  canEditDates: boolean;
+  isDepartment: boolean;
+  today: string;
+}) {
   const { locale, t, name, d } = useI18n();
   const [moneyState, moneyAction] = useActionState(adjustFinanceAction, null);
   const [windowState, windowAction] = useActionState(updateWindowAction, null);
@@ -187,7 +220,14 @@ function AssignmentCard({ assignment, canManage, isDepartment, today }: { assign
       <StageTrack rows={assignment.stages.map((stage) => ({ name: name(stage.nameAr, stage.nameEn), start: stage.plannedStart, due: stage.plannedDue, status: stage.status }))} />
       <div className="stage-list">
         {assignment.stages.map((stage) => (
-          <StageCard key={stage.progressId} stage={stage} isDepartment={isDepartment} today={today} />
+          <StageCard
+            key={stage.progressId}
+            stage={stage}
+            siblings={assignment.stages}
+            canExecuteStages={canExecuteStages}
+            canEditDates={canEditDates}
+            today={today}
+          />
         ))}
       </div>
       {canManage ? (
@@ -201,16 +241,52 @@ function AssignmentCard({ assignment, canManage, isDepartment, today }: { assign
   );
 }
 
-function StageCard({ stage, isDepartment, today }: { stage: StageVM; isDepartment: boolean; today: string }) {
+function StageCard({
+  stage,
+  siblings,
+  canExecuteStages,
+  canEditDates,
+  today,
+}: {
+  stage: StageVM;
+  siblings: StageVM[];
+  canExecuteStages: boolean;
+  canEditDates: boolean;
+  today: string;
+}) {
   const { locale, t, name, d } = useI18n();
   const dialog = useRef<HTMLDialogElement>(null);
   const [datesState, datesAction] = useActionState(updateDatesAction, null);
   const [focusState, focusAction] = useActionState(focusStageAction, null);
   const [doneState, doneAction] = useActionState(completeStageAction, null);
   const [openState, openAction] = useActionState(reopenStageAction, null);
+  const [draftStart, setDraftStart] = useState(stage.plannedStart);
+  const [draftDue, setDraftDue] = useState(stage.plannedDue);
   useEffect(() => {
     if (datesState?.ok) dialog.current?.close();
   }, [datesState]);
+  const softWarnings = useMemo(() => {
+    const warnings = [];
+    const publication = siblings.find((item) => item.code === "PUBLICATION");
+    const technical = siblings.find((item) => item.code === "TECHNICAL_OPENING");
+    if (stage.code === "PUBLICATION" || stage.code === "TECHNICAL_OPENING") {
+      const pubDue = stage.code === "PUBLICATION" ? draftDue : publication?.plannedDue;
+      const techStart = stage.code === "TECHNICAL_OPENING" ? draftStart : technical?.plannedStart;
+      if (pubDue && techStart) {
+        const gap = warnPublicationToTechnicalGap(pubDue, techStart);
+        if (gap) warnings.push(gap);
+      }
+    }
+    if (stage.code === "TECHNICAL_OPENING") {
+      const originalSpan = Math.max(0, diffDays(stage.baselineStart, stage.baselineDue));
+      const postponeDays = Math.max(0, diffDays(stage.plannedDue, draftDue));
+      if (postponeDays > 0) {
+        const postpone = warnTechnicalOpeningPostponement(originalSpan, postponeDays);
+        if (postpone) warnings.push(postpone);
+      }
+    }
+    return warnings;
+  }, [draftDue, draftStart, siblings, stage]);
   const late = stage.daysLate > 0 && stage.status === "overdue";
   return (
     <article className={stage.isCurrent ? "stage-card current" : "stage-card"}>
@@ -229,7 +305,7 @@ function StageCard({ stage, isDepartment, today }: { stage: StageVM; isDepartmen
         <div><span>{t("بدء فعلي", "Actual start")}</span><b className="num">{formatDate(stage.actualStart)}</b></div>
         <div><span>{t("إنهاء فعلي", "Completed")}</span><b className="num">{formatDate(stage.completedAt)}</b></div>
       </div>
-      {isDepartment && !stage.completedAt ? (
+      {canExecuteStages && !stage.completedAt ? (
         <div className="grid-2">
           <form action={focusAction} className="row">
             <input type="hidden" name="progressId" value={stage.progressId} />
@@ -243,10 +319,15 @@ function StageCard({ stage, isDepartment, today }: { stage: StageVM; isDepartmen
           </form>
           <FormMessage result={focusState} />
           <FormMessage result={doneState} />
-          <button className="btn btn-gold btn-sm" type="button" onClick={() => dialog.current?.showModal()}>{t("تعديل المواعيد مع السبب", "Revise dates with a reason")}</button>
+          {canEditDates ? (
+            <button className="btn btn-gold btn-sm" type="button" onClick={() => dialog.current?.showModal()}>{t("تعديل المواعيد مع السبب", "Revise dates with a reason")}</button>
+          ) : null}
         </div>
       ) : null}
-      {isDepartment && stage.completedAt ? (
+      {canEditDates && !canExecuteStages && !stage.completedAt ? (
+        <button className="btn btn-gold btn-sm" type="button" onClick={() => dialog.current?.showModal()}>{t("تعديل المواعيد مع السبب", "Revise dates with a reason")}</button>
+      ) : null}
+      {canExecuteStages && stage.completedAt ? (
         <form action={openAction} className="row">
           <input type="hidden" name="progressId" value={stage.progressId} />
           <input className="input" name="reason" placeholder={t("سبب إعادة الفتح", "Reason for reopening")} />
@@ -287,9 +368,34 @@ function StageCard({ stage, isDepartment, today }: { stage: StageVM; isDepartmen
         <form action={datesAction} className="modal-card stack">
           <b>{t("تعديل الموعد المخطط", "Edit the planned dates")}</b>
           <input type="hidden" name="progressId" value={stage.progressId} />
-          <label className="field"><span>{t("بدء مخطط", "Planned start")}</span><input className="input" type="date" name="plannedStart" defaultValue={stage.plannedStart} required /></label>
-          <label className="field"><span>{t("نهو مخطط", "Planned finish")}</span><input className="input" type="date" name="plannedDue" defaultValue={stage.plannedDue} required /></label>
+          <label className="field">
+            <span>{t("بدء مخطط", "Planned start")}</span>
+            <input
+              className="input"
+              type="date"
+              name="plannedStart"
+              value={draftStart}
+              onChange={(event) => setDraftStart(event.target.value)}
+              required
+            />
+          </label>
+          <label className="field">
+            <span>{t("نهو مخطط", "Planned finish")}</span>
+            <input
+              className="input"
+              type="date"
+              name="plannedDue"
+              value={draftDue}
+              onChange={(event) => setDraftDue(event.target.value)}
+              required
+            />
+          </label>
           <label className="field"><span>{d.common.reason} · {d.common.required}</span><textarea className="textarea" name="reason" required minLength={3} /></label>
+          {softWarnings.map((item) => (
+            <p key={item.code} className="banner warn" role="status">
+              {locale === "ar" ? item.ar : item.en}
+            </p>
+          ))}
           <FormMessage result={datesState} />
           <div className="row">
             <SubmitButton label={d.common.save} pendingLabel={d.common.saving} />

@@ -3,7 +3,7 @@
 import { useActionState, useState } from "react";
 import { useI18n } from "@/i18n/context";
 import { PERMISSIONS, type Permission } from "@/lib/permissions";
-import { assignTasksAction, toggleUserAction } from "@/server/actions";
+import { assignTasksAction, deleteUserAction, toggleUserAction } from "@/server/actions";
 import { FormMessage, SubmitButton } from "./form-bits";
 import { Modal, useCloseWhenSaved } from "./modal";
 import { Tip } from "./tip";
@@ -20,6 +20,7 @@ export function UserDetailButton({
   statusHint,
   statusClass,
   tasks,
+  editableTasks,
   custom,
   canApplyRole,
   manageable,
@@ -36,6 +37,7 @@ export function UserDetailButton({
   statusHint: string;
   statusClass: string;
   tasks: Permission[];
+  editableTasks: Permission[];
   custom: boolean;
   canApplyRole: boolean;
   manageable: boolean;
@@ -44,11 +46,29 @@ export function UserDetailButton({
   const { t, locale, d } = useI18n();
   const [open, setOpen] = useState(false);
   const [state, action] = useActionState(assignTasksAction, null);
+  const [deleteState, deleteAction] = useActionState(deleteUserAction, null);
   useCloseWhenSaved(state, () => setOpen(false));
+  useCloseWhenSaved(deleteState, () => setOpen(false));
   const lines = tasks.map((key) => {
     const item = PERMISSIONS.find((entry) => entry.key === key);
     return { key, label: item ? (locale === "ar" ? item.ar : item.en) : key };
   });
+  const editable = PERMISSIONS.filter((item) => editableTasks.includes(item.key));
+
+  function confirmSuspend(event: React.FormEvent<HTMLFormElement>) {
+    const message = active
+      ? t(`إيقاف حساب ${name}؟`, `Suspend account ${name}?`)
+      : t(`تفعيل حساب ${name}؟`, `Activate account ${name}?`);
+    if (!window.confirm(message)) event.preventDefault();
+  }
+
+  function confirmDelete(event: React.FormEvent<HTMLFormElement>) {
+    const message = t(
+      `حذف/إيقاف نهائي لحساب ${name}؟ لا يمكن التراجع بسهولة.`,
+      `Permanently deactivate ${name}? This is hard to undo.`,
+    );
+    if (!window.confirm(message)) event.preventDefault();
+  }
 
   return (
     <>
@@ -87,7 +107,7 @@ export function UserDetailButton({
               <b>{t("تعديل المهام", "Edit tasks")}</b>
               <p className="note">{t("التعديل يخص هذا الشخص. حساب الإدارة يبقى محصورًا ببيانات إدارته.", "The change belongs to this person. A department account still only sees that department's data.")}</p>
               <div className="task-list">
-                {PERMISSIONS.map((item) => (
+                {editable.map((item) => (
                   <label key={item.key} className="checkline">
                     <input type="checkbox" name="task" value={item.key} defaultChecked={tasks.includes(item.key)} />
                     <span>{locale === "ar" ? item.ar : item.en}</span>
@@ -108,13 +128,22 @@ export function UserDetailButton({
             </form>
           ) : null}
           {manageable ? (
-            <form action={toggleUserAction} className="row">
-              <input type="hidden" name="id" value={userId} />
-              <button className={active ? "btn btn-danger" : "btn btn-primary"} type="submit">
-                {active ? t("إيقاف الحساب", "Suspend account") : t("تفعيل الحساب", "Activate account")}
-              </button>
+            <div className="stack">
+              <form action={toggleUserAction} className="row" onSubmit={confirmSuspend}>
+                <input type="hidden" name="id" value={userId} />
+                <button className={active ? "btn btn-danger" : "btn btn-primary"} type="submit">
+                  {active ? t("إيقاف الحساب", "Suspend account") : t("تفعيل الحساب", "Activate account")}
+                </button>
+              </form>
+              {active ? (
+                <form action={deleteAction} className="row" onSubmit={confirmDelete}>
+                  <input type="hidden" name="id" value={userId} />
+                  <SubmitButton className="btn btn-danger" label={t("حذف الحساب", "Delete account")} pendingLabel={d.common.saving} />
+                  <FormMessage result={deleteState} />
+                </form>
+              ) : null}
               <button className="btn btn-ghost" type="button" onClick={() => setOpen(false)}>{d.common.close}</button>
-            </form>
+            </div>
           ) : (
             <div className="row">
               <button className="btn btn-ghost" type="button" onClick={() => setOpen(false)}>{d.common.close}</button>

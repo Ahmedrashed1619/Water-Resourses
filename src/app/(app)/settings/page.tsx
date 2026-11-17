@@ -12,7 +12,7 @@ export default async function SettingsPage() {
   const user = await requireUser();
   const locale = await getLocale();
   const manageTypes = can(user, "settings.types");
-  const types = manageTypes ? await listTypes() : [];
+  const types = manageTypes ? await listTypes({ includeDeleted: true }) : [];
   const mine = grantsOf(user);
   return (
     <>
@@ -43,6 +43,8 @@ export default async function SettingsPage() {
             nameAr: type.nameAr,
             nameEn: type.nameEn,
             isSystem: type.isSystem,
+            deletedAt: type.deletedAt ? type.deletedAt.toISOString() : null,
+            deletedByName: type.deletedBy ? (locale === "ar" ? type.deletedBy.nameAr : type.deletedBy.nameEn) : null,
             stages: type.stages.map((stage) => ({
               id: stage.id,
               nameAr: stage.nameAr,

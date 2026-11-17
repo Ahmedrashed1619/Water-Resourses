@@ -1,9 +1,8 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useState } from "react";
 import { useI18n } from "@/i18n/context";
-import { formatDate } from "@/lib/format";
-import { computeStageWindows, type StageRule } from "@/lib/rules";
+import type { StageRule } from "@/lib/rules";
 import { createOperationAction } from "@/server/actions";
 import { FormMessage, SubmitButton } from "./form-bits";
 import { SelectBox } from "./select-box";
@@ -23,8 +22,6 @@ export function CreateOperationForm({ types, departments }: { types: TypeOption[
   const [sharedAmount, setSharedAmount] = useState("1000000");
   const [rows, setRows] = useState<Row[]>([]);
   const selected = new Set(rows.map((row) => row.departmentId));
-  const type = types.find((item) => item.id === typeId) ?? types[0];
-  const windows = useMemo(() => (approval && type ? computeStageWindows(approval, type.stages) : []), [approval, type]);
   const visible = departments.filter((item) => {
     const blob = `${item.nameAr} ${item.nameEn}`.toLowerCase();
     return blob.includes(query.trim().toLowerCase());
@@ -74,32 +71,6 @@ export function CreateOperationForm({ types, departments }: { types: TypeOption[
           <span>{t("تاريخ الموافقة الفنية", "Technical approval date")}</span>
           <input className="input" type="date" name="technicalApprovalDate" value={approval} onChange={(event) => setApproval(event.target.value)} required />
         </label>
-      </div>
-      <div className="card card-pad stack">
-        <b>{t("المواعيد المرجعية المحسوبة", "Calculated reference dates")}</b>
-        <div className="table-wrap">
-          <table className="data">
-            <thead>
-              <tr>
-                <th>{t("المرحلة", "Stage")}</th>
-                <th>{t("البدء", "Start")}</th>
-                <th>{t("النهو", "Finish")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {windows.map((window) => {
-                const stage = type?.stages.find((item) => item.code === window.code);
-                return (
-                  <tr key={window.code}>
-                    <td>{stage ? name(stage.nameAr, stage.nameEn) : window.code}</td>
-                    <td className="num">{formatDate(window.start)}</td>
-                    <td className="num">{formatDate(window.due)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
       </div>
       <div className="card card-pad stack">
         <div className="between">

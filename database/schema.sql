@@ -64,7 +64,9 @@ CREATE TABLE dbo.operation_types (
   is_system BIT NOT NULL CONSTRAINT DF_type_system DEFAULT 0,
   is_active BIT NOT NULL CONSTRAINT DF_type_active DEFAULT 1,
   sort_order INT NOT NULL,
-  created_at DATETIME2 NOT NULL CONSTRAINT DF_type_created DEFAULT SYSUTCDATETIME()
+  created_at DATETIME2 NOT NULL CONSTRAINT DF_type_created DEFAULT SYSUTCDATETIME(),
+  deleted_at DATETIME2 NULL,
+  deleted_by_id NVARCHAR(40) NULL REFERENCES dbo.users(id)
 );
 
 IF OBJECT_ID(N'dbo.stage_definitions', N'U') IS NULL
@@ -168,5 +170,43 @@ CREATE TABLE dbo.alerts (
   CONSTRAINT UQ_alert_progress_type UNIQUE (progress_id, type),
   CONSTRAINT CK_alert_type CHECK (type IN (N'OVERDUE', N'HALFWAY', N'DUE_SOON')),
   CONSTRAINT CK_alert_audience CHECK (audience IN (N'SECTOR', N'DEPARTMENT'))
+);
+
+IF OBJECT_ID(N'dbo.funding_tranches', N'U') IS NULL
+CREATE TABLE dbo.funding_tranches (
+  id NVARCHAR(40) NOT NULL PRIMARY KEY,
+  operation_department_id NVARCHAR(40) NOT NULL REFERENCES dbo.operation_departments(id),
+  sequence INT NOT NULL,
+  sent_at DATE NOT NULL,
+  amount DECIMAL(19,2) NOT NULL CONSTRAINT DF_tranche_amount DEFAULT 0,
+  note NVARCHAR(500) NULL,
+  created_by_id NVARCHAR(40) NOT NULL REFERENCES dbo.users(id),
+  created_at DATETIME2 NOT NULL CONSTRAINT DF_tranche_created DEFAULT SYSUTCDATETIME(),
+  CONSTRAINT UQ_tranche_seq UNIQUE (operation_department_id, sequence)
+);
+
+IF OBJECT_ID(N'dbo.operation_need_requests', N'U') IS NULL
+CREATE TABLE dbo.operation_need_requests (
+  id NVARCHAR(40) NOT NULL PRIMARY KEY,
+  department_id NVARCHAR(40) NOT NULL REFERENCES dbo.departments(id),
+  operation_type_id NVARCHAR(40) NOT NULL REFERENCES dbo.operation_types(id),
+  title NVARCHAR(400) NOT NULL,
+  description NVARCHAR(1000) NULL,
+  requirements NVARCHAR(2000) NOT NULL,
+  requested_support NVARCHAR(20) NOT NULL,
+  estimated_value DECIMAL(19,2) NULL,
+  desired_start_date DATE NULL,
+  expected_duration_days INT NULL,
+  status NVARCHAR(40) NOT NULL CONSTRAINT DF_need_status DEFAULT N'SUBMITTED',
+  created_by_id NVARCHAR(40) NOT NULL REFERENCES dbo.users(id),
+  created_at DATETIME2 NOT NULL CONSTRAINT DF_need_created DEFAULT SYSUTCDATETIME(),
+  updated_at DATETIME2 NOT NULL CONSTRAINT DF_need_updated DEFAULT SYSUTCDATETIME(),
+  reviewed_by_id NVARCHAR(40) NULL REFERENCES dbo.users(id),
+  reviewed_at DATETIME2 NULL,
+  decision_note NVARCHAR(1000) NULL,
+  approved_amount DECIMAL(19,2) NULL,
+  linked_operation_id NVARCHAR(40) NULL REFERENCES dbo.operations(id),
+  CONSTRAINT CK_need_support CHECK (requested_support IN (N'FINANCIAL', N'TECHNICAL', N'BOTH')),
+  CONSTRAINT CK_need_status CHECK (status IN (N'SUBMITTED', N'UNDER_REVIEW', N'APPROVED', N'PARTIALLY_APPROVED', N'REJECTED', N'FULFILLED'))
 );
 GO

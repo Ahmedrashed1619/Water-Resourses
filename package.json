@@ -8,7 +8,7 @@
     "postinstall": "prisma generate",
     "start": "next start",
     "lint": "next lint",
-    "test": "tsx --test src/lib/rules.test.ts",
+    "test": "tsx --test src/lib/rules.test.ts src/lib/needs-rules.test.ts",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "db:setup": "prisma db push && tsx prisma/seed.ts"

@@ -12,6 +12,8 @@ async function main() {
   await prisma.stageDateChange.deleteMany();
   await prisma.departmentStageProgress.deleteMany();
   await prisma.financialAdjustment.deleteMany();
+  await prisma.fundingTranche.deleteMany();
+  await prisma.operationNeedRequest.deleteMany();
   await prisma.operationDepartment.deleteMany();
   await prisma.operation.deleteMany();
   await prisma.stageDefinition.deleteMany();
@@ -157,6 +159,18 @@ async function main() {
           },
         });
       }
+      if (row.amount && row.amount !== "0.00") {
+        await prisma.fundingTranche.create({
+          data: {
+            operationDepartmentId: assignment.id,
+            sequence: 1,
+            sentAt: parseISODate(options.approval),
+            amount: row.amount,
+            note: "دفعة الاعتماد الأولى",
+            createdById: sectorUser.id,
+          },
+        });
+      }
     }
   }
 
@@ -256,6 +270,55 @@ async function main() {
         data: { progressId: row.id, type, audience: type === "OVERDUE" ? "SECTOR" : "DEPARTMENT" },
       });
     }
+  }
+
+  const adminUser = await prisma.user.findUniqueOrThrow({ where: { email: "admin@operio.local" } });
+  await prisma.operationType.create({
+    data: {
+      code: "CUSTOM_ARCHIVED_DEMO",
+      nameAr: "نوع تجريبي محذوف",
+      nameEn: "Archived demo type",
+      sortOrder: 99,
+      isSystem: false,
+      isActive: false,
+      deletedAt: new Date(),
+      deletedById: adminUser.id,
+      stages: { create: DEFAULT_STAGES.map((stage) => ({ ...stage })) },
+    },
+  });
+
+  const efficiencyType = await prisma.operationType.findUniqueOrThrow({ where: { code: "EFFICIENCY" } });
+  await prisma.operationNeedRequest.create({
+    data: {
+      departmentId: eastId!,
+      operationTypeId: efficiencyType.id,
+      title: "طلب تأهيل بوابات إضافية بشرق المنيا",
+      description: "حاجة عاجلة لاستكمال أعمال التأهيل بعد المعاينة الميدانية",
+      requirements: "اعتماد مالي أولي ودعم فني للجنة المعاينة",
+      requestedSupport: "BOTH",
+      estimatedValue: "1200000.00",
+      desiredStartDate: parseISODate("2027-01-15"),
+      expectedDurationDays: 120,
+      status: "SUBMITTED",
+      createdById: eastUser.id,
+    },
+  });
+
+  const eastAssignment = await prisma.operationDepartment.findFirst({
+    where: { department: { code: "east-minya" }, isDeleted: false },
+    orderBy: { createdAt: "asc" },
+  });
+  if (eastAssignment) {
+    await prisma.fundingTranche.create({
+      data: {
+        operationDepartmentId: eastAssignment.id,
+        sequence: 2,
+        sentAt: parseISODate("2026-11-01"),
+        amount: "500000.00",
+        note: "دفعة الاعتماد الثانية",
+        createdById: sectorUser.id,
+      },
+    });
   }
 
   await prisma.auditLog.create({

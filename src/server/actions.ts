@@ -329,3 +329,98 @@ export async function assignTasksAction(_prev: ActionResult | null, formData: Fo
   }
   return { ok: true, message: locale === "ar" ? "حُفظت المهام" : "Tasks saved" };
 }
+
+export async function deleteTypeAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const locale = await getLocale();
+  try {
+    await services.softDeleteType(user, String(formData.get("id") || ""));
+  } catch (error) {
+    return fail(locale, error);
+  }
+  return { ok: true, message: locale === "ar" ? "نُقل نوع العملية إلى سجل المحذوفات" : "Operation type moved to the recycle bin" };
+}
+
+export async function restoreTypeAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const locale = await getLocale();
+  try {
+    await services.restoreType(user, String(formData.get("id") || ""));
+  } catch (error) {
+    return fail(locale, error);
+  }
+  return { ok: true, message: locale === "ar" ? "استُرجع نوع العملية" : "Operation type restored" };
+}
+
+export async function addFundingTrancheAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const locale = await getLocale();
+  try {
+    await services.addFundingTranche(user, {
+      operationDepartmentId: String(formData.get("operationDepartmentId") || ""),
+      sentAt: String(formData.get("sentAt") || ""),
+      amount: String(formData.get("amount") || ""),
+      note: String(formData.get("note") || ""),
+    });
+  } catch (error) {
+    return fail(locale, error);
+  }
+  return { ok: true, message: locale === "ar" ? "أُضيفت دفعة الاعتماد" : "Funding tranche added" };
+}
+
+export async function createNeedRequestAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const locale = await getLocale();
+  try {
+    await services.createNeedRequest(user, {
+      operationTypeId: String(formData.get("operationTypeId") || ""),
+      title: String(formData.get("title") || ""),
+      description: String(formData.get("description") || ""),
+      requirements: String(formData.get("requirements") || ""),
+      requestedSupport: String(formData.get("requestedSupport") || "BOTH") as "FINANCIAL" | "TECHNICAL" | "BOTH",
+      estimatedValue: String(formData.get("estimatedValue") || ""),
+      desiredStartDate: String(formData.get("desiredStartDate") || "") || undefined,
+      expectedDurationDays: num(formData.get("expectedDurationDays")) || undefined,
+    });
+  } catch (error) {
+    return fail(locale, error);
+  }
+  return { ok: true, message: locale === "ar" ? "أُرسل طلب الاحتياج" : "Needs request submitted" };
+}
+
+export async function respondNeedRequestAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const locale = await getLocale();
+  try {
+    const trancheOd = String(formData.get("trancheOperationDepartmentId") || "");
+    await services.respondNeedRequest(user, {
+      id: String(formData.get("id") || ""),
+      decision: String(formData.get("decision") || "REJECTED") as "APPROVED" | "PARTIALLY_APPROVED" | "REJECTED",
+      decisionNote: String(formData.get("decisionNote") || ""),
+      approvedAmount: String(formData.get("approvedAmount") || ""),
+      linkedOperationId: String(formData.get("linkedOperationId") || "") || undefined,
+      tranche: trancheOd
+        ? {
+            operationDepartmentId: trancheOd,
+            sentAt: String(formData.get("trancheSentAt") || ""),
+            amount: String(formData.get("trancheAmount") || ""),
+            note: String(formData.get("trancheNote") || ""),
+          }
+        : undefined,
+    });
+  } catch (error) {
+    return fail(locale, error);
+  }
+  return { ok: true, message: locale === "ar" ? "حُفظ الرد على الطلب" : "Response saved" };
+}
+
+export async function deleteUserAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const locale = await getLocale();
+  try {
+    await services.deleteUserAccount(user, String(formData.get("id") || ""));
+  } catch (error) {
+    return fail(locale, error);
+  }
+  return { ok: true, message: locale === "ar" ? "أُوقف الحساب" : "Account deactivated" };
+}

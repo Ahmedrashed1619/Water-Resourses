@@ -63,7 +63,7 @@ function dateOrNull(value: string | null | undefined) {
 
 async function loadActiveStages(typeId: string) {
   const type = await prisma.operationType.findFirst({
-    where: { id: typeId, isActive: true },
+    where: { id: typeId, isActive: true, deletedAt: null },
     include: { stages: { where: { isActive: true }, orderBy: { sortOrder: "asc" } } },
   });
   if (!type || type.stages.length === 0) throw new ActionError("invalid");
@@ -678,6 +678,174 @@ export async function syncAlerts() {
       }
     }
   }
+}
+
+export async function softDeleteType(user: CurrentUser, typeId: string) {
+  if (!can(user, "settings.types")) throw new ActionError("forbidden");
+  const type = await prisma.operationType.findFirst({ where: { id: typeId, deletedAt: null } });
+  if (!type) throw new ActionError("notFound");
+  if (type.isSystem) throw new ActionError("forbidden");
+  const now = new Date();
+  await prisma.operationType.update({
+    where: { id: typeId },
+    data: { deletedAt: now, deletedById: user.id, isActive: false },
+  });
+  await audit(prisma, user.id, "DELETE_TYPE", "OperationType", typeId, `حذف نوع العملية: ${type.nameAr}`, `Deleted operation type: ${type.nameEn}`);
+}
+
+export async function restoreType(user: CurrentUser, typeId: string) {
+  if (!can(user, "settings.types")) throw new ActionError("forbidden");
+  const type = await prisma.operationType.findFirst({ where: { id: typeId, deletedAt: { not: null } } });
+  if (!type) throw new ActionError("notFound");
+  await prisma.operationType.update({
+    where: { id: typeId },
+    data: { deletedAt: null, deletedById: null, isActive: true },
+  });
+  await audit(prisma, user.id, "RESTORE_TYPE", "OperationType", typeId, `استرجاع نوع العملية: ${type.nameAr}`, `Restored operation type: ${type.nameEn}`);
+}
+
+export async function addFundingTranche(
+  user: CurrentUser,
+  input: { operationDepartmentId: string; sentAt: string; amount: string; note?: string },
+) {
+  if (!can(user, "finance.manage")) throw new ActionError("forbidden");
+  assertSectorActor(user);
+  const amount = normalizeMoney(input.amount);
+  if (!amount) throw new ActionError("invalidAmount");
+  const sentAt = parseISODate(input.sentAt);
+  const assignment = await prisma.operationDepartment.findFirst({
+    where: { id: input.operationDepartmentId, isDeleted: false },
+  });
+  if (!assignment) throw new ActionError("notFound");
+  const last = await prisma.fundingTranche.findFirst({
+    where: { operationDepartmentId: assignment.id },
+    orderBy: { sequence: "desc" },
+  });
+  const sequence = (last?.sequence ?? 0) + 1;
+  const created = await prisma.fundingTranche.create({
+    data: {
+      operationDepartmentId: assignment.id,
+      sequence,
+      sentAt,
+      amount,
+      note: input.note?.trim() || null,
+      createdById: user.id,
+    },
+  });
+  await audit(
+    prisma,
+    user.id,
+    "ADD_FUNDING_TRANCHE",
+    "FundingTranche",
+    created.id,
+    `دفعة اعتماد رقم ${sequence}`,
+    `Funding tranche #${sequence}`,
+  );
+  return created.id;
+}
+
+export async function createNeedRequest(
+  user: CurrentUser,
+  input: {
+    operationTypeId: string;
+    title: string;
+    description?: string;
+    requirements: string;
+    requestedSupport: "FINANCIAL" | "TECHNICAL" | "BOTH";
+    estimatedValue?: string;
+    desiredStartDate?: string;
+    expectedDurationDays?: number;
+  },
+) {
+  if (!can(user, "needs.create")) throw new ActionError("forbidden");
+  if (!isDepartmentRole(user.role) || !user.departmentId) throw new ActionError("forbidden");
+  if (input.title.trim().length < 3 || input.requirements.trim().length < 3) throw new ActionError("invalid");
+  const type = await prisma.operationType.findFirst({
+    where: { id: input.operationTypeId, deletedAt: null, isActive: true },
+  });
+  if (!type) throw new ActionError("notFound");
+  let estimatedValue: string | null = null;
+  if (input.estimatedValue?.trim()) {
+    estimatedValue = normalizeMoney(input.estimatedValue);
+    if (!estimatedValue) throw new ActionError("invalidAmount");
+  }
+  const created = await prisma.operationNeedRequest.create({
+    data: {
+      departmentId: user.departmentId,
+      operationTypeId: type.id,
+      title: input.title.trim(),
+      description: input.description?.trim() || null,
+      requirements: input.requirements.trim(),
+      requestedSupport: input.requestedSupport,
+      estimatedValue,
+      desiredStartDate: input.desiredStartDate ? parseISODate(input.desiredStartDate) : null,
+      expectedDurationDays: input.expectedDurationDays ? Math.max(1, Math.trunc(input.expectedDurationDays)) : null,
+      status: "SUBMITTED",
+      createdById: user.id,
+    },
+  });
+  await audit(prisma, user.id, "CREATE_NEED", "OperationNeedRequest", created.id, `طلب احتياج: ${created.title}`, `Needs request: ${created.title}`);
+  return created.id;
+}
+
+export async function respondNeedRequest(
+  user: CurrentUser,
+  input: {
+    id: string;
+    decision: "APPROVED" | "PARTIALLY_APPROVED" | "REJECTED";
+    decisionNote?: string;
+    approvedAmount?: string;
+    linkedOperationId?: string;
+    tranche?: { operationDepartmentId: string; sentAt: string; amount: string; note?: string };
+  },
+) {
+  if (!can(user, "needs.respond")) throw new ActionError("forbidden");
+  assertSectorActor(user);
+  const request = await prisma.operationNeedRequest.findUnique({ where: { id: input.id } });
+  if (!request) throw new ActionError("notFound");
+  if (request.status === "FULFILLED" || request.status === "REJECTED") throw new ActionError("invalid");
+  let approvedAmount: string | null = null;
+  if (input.approvedAmount?.trim()) {
+    approvedAmount = normalizeMoney(input.approvedAmount);
+    if (!approvedAmount) throw new ActionError("invalidAmount");
+  }
+  if (input.linkedOperationId) {
+    const op = await prisma.operation.findFirst({ where: { id: input.linkedOperationId, isDeleted: false } });
+    if (!op) throw new ActionError("notFound");
+  }
+  await prisma.operationNeedRequest.update({
+    where: { id: input.id },
+    data: {
+      status: input.decision,
+      decisionNote: input.decisionNote?.trim() || null,
+      approvedAmount,
+      linkedOperationId: input.linkedOperationId || null,
+      reviewedById: user.id,
+      reviewedAt: new Date(),
+    },
+  });
+  if (input.tranche && (input.decision === "APPROVED" || input.decision === "PARTIALLY_APPROVED")) {
+    await addFundingTranche(user, input.tranche);
+  }
+  await audit(
+    prisma,
+    user.id,
+    "RESPOND_NEED",
+    "OperationNeedRequest",
+    input.id,
+    `رد على طلب احتياج: ${input.decision}`,
+    `Responded to needs request: ${input.decision}`,
+  );
+}
+
+export async function deleteUserAccount(user: CurrentUser, targetId: string) {
+  if (!can(user, "users.manage")) throw new ActionError("forbidden");
+  if (targetId === user.id) throw new ActionError("cannotEditSelf");
+  const target = await prisma.user.findUnique({ where: { id: targetId } });
+  if (!target) throw new ActionError("notFound");
+  assertSameOrganization(user, target);
+  await prisma.user.update({ where: { id: targetId }, data: { isActive: false } });
+  await audit(prisma, user.id, "DELETE_USER", "User", targetId, `إيقاف حساب: ${target.email}`, `Deactivated account: ${target.email}`);
 }
 
 export { dateOrNull };

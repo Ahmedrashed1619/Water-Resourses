@@ -2,7 +2,8 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import type { CurrentUser } from "./auth";
-import { dateToIso, diffDays, todayISO } from "./dates";
+import { dateToIso, diffDays, parseISODate, todayISO } from "./dates";
+import { fiscalYearOf } from "./needs-rules";
 import { addMoney } from "./money";
 import { audienceFor, can, isDepartmentRole } from "./permissions";
 import { stageVisualStatus, worstStatus, type AlertType, type StageVisualStatus } from "./rules";
@@ -11,6 +12,7 @@ import type { AlertRow, AssignmentVM, DashboardData, DeptStat, OperationDetail, 
 const assignmentInclude = {
   department: true,
   adjustments: { include: { createdBy: true }, orderBy: { effectiveDate: "desc" as const } },
+  fundingTranches: { orderBy: { sequence: "asc" as const } },
   progress: {
     include: {
       stageDefinition: true,
@@ -90,6 +92,13 @@ function mapAssignment(row: AssignmentRow, today: string): AssignmentVM {
       actorEn: item.createdBy.nameEn,
       createdAt: item.createdAt.toISOString(),
     })),
+    fundingTranches: (row.fundingTranches ?? []).map((item) => ({
+      id: item.id,
+      sequence: item.sequence,
+      sentAt: dateToIso(item.sentAt),
+      amount: item.amount,
+      note: item.note,
+    })),
     stages,
     status: worstStatus(stages.map((stage) => stage.status)),
   };
@@ -128,7 +137,7 @@ const operationInclude = {
 
 export async function getShellCounts(user: CurrentUser) {
   const audience = audienceFor(user.role);
-  const [alerts, revisions] = await Promise.all([
+  const [alerts, revisions, needs] = await Promise.all([
     prisma.alert.count({
       where: {
         isDeleted: false,
@@ -143,8 +152,16 @@ export async function getShellCounts(user: CurrentUser) {
           where: { seenAt: null, progress: { operationDepartment: { isDeleted: false, operation: { isDeleted: false } } } },
         })
       : Promise.resolve(0),
+    can(user, "needs.view")
+      ? prisma.operationNeedRequest.count({
+          where: {
+            status: "SUBMITTED",
+            ...(isDepartmentRole(user.role) ? { departmentId: user.departmentId ?? "__none__" } : {}),
+          },
+        })
+      : Promise.resolve(0),
   ]);
-  return { alerts, revisions };
+  return { alerts, revisions, needs };
 }
 
 function canSeeRevisions(user: CurrentUser) {
@@ -176,7 +193,7 @@ export async function listAlerts(
       progress: {
         include: {
           stageDefinition: true,
-          operationDepartment: { include: { department: true, operation: true } },
+          operationDepartment: { include: { department: true, operation: { include: { operationType: true } } } },
         },
       },
     },
@@ -191,6 +208,8 @@ export async function listAlerts(
         operationId: alert.progress.operationDepartment.operationId,
         operationAr: alert.progress.operationDepartment.operation.nameAr,
         operationEn: alert.progress.operationDepartment.operation.nameEn,
+        operationTypeAr: alert.progress.operationDepartment.operation.operationType.nameAr,
+        operationTypeEn: alert.progress.operationDepartment.operation.operationType.nameEn,
         departmentId: alert.progress.operationDepartment.departmentId,
         departmentAr: alert.progress.operationDepartment.department.nameAr,
         departmentEn: alert.progress.operationDepartment.department.nameEn,
@@ -211,9 +230,19 @@ export async function listOperations(
   user: CurrentUser,
   filter: { q?: string; typeId?: string; departmentId?: string; status?: string },
 ) {
+  const operations = await loadFilteredOperations(user, filter);
   const today = todayISO();
+  let items = operations.map((operation) => toListItem(operation, today));
+  if (filter.status) items = items.filter((item) => item.status === filter.status);
+  return items;
+}
+
+async function loadFilteredOperations(
+  user: CurrentUser,
+  filter: { q?: string; typeId?: string; departmentId?: string; status?: string },
+) {
   const departmentId = isDepartmentRole(user.role) ? user.departmentId ?? "__none__" : filter.departmentId;
-  const operations = await prisma.operation.findMany({
+  return prisma.operation.findMany({
     where: {
       isDeleted: false,
       ...(filter.typeId ? { operationTypeId: filter.typeId } : {}),
@@ -230,19 +259,83 @@ export async function listOperations(
     include: {
       operationType: true,
       assignments: {
-        where: { isDeleted: false, ...(isDepartmentRole(user.role) ? { departmentId: user.departmentId ?? "__none__" } : {}) },
+        where: {
+          isDeleted: false,
+          ...(isDepartmentRole(user.role)
+            ? { departmentId: user.departmentId ?? "__none__" }
+            : filter.departmentId
+              ? { departmentId: filter.departmentId }
+              : {}),
+        },
         include: assignmentInclude,
       },
     },
     orderBy: { technicalApprovalDate: "desc" },
   });
-  let items = operations.map((operation) => toListItem(operation, today));
-  if (filter.status) items = items.filter((item) => item.status === filter.status);
-  return items;
 }
 
-export async function getOperation(user: CurrentUser, id: string): Promise<OperationDetail | null> {
+export type OperationExportRow = {
+  operationId: string;
+  operationAr: string;
+  operationEn: string;
+  typeAr: string;
+  typeEn: string;
+  approvalDate: string;
+  departmentAr: string;
+  departmentEn: string;
+  approvedAmount: string;
+  currentAmount: string;
+  status: StageVisualStatus;
+  stagesSummaryAr: string;
+  stagesSummaryEn: string;
+  tranchesSummary: string;
+  fundingTotal: string;
+};
+
+export async function listOperationExportRows(
+  user: CurrentUser,
+  filter: { q?: string; typeId?: string; departmentId?: string; status?: string },
+): Promise<OperationExportRow[]> {
   const today = todayISO();
+  const operations = await loadFilteredOperations(user, filter);
+  const rows: OperationExportRow[] = [];
+  for (const operation of operations) {
+    for (const assignment of operation.assignments) {
+      const mapped = mapAssignment(assignment, today);
+      if (filter.status && mapped.status !== filter.status) continue;
+      rows.push({
+        operationId: operation.id,
+        operationAr: operation.nameAr,
+        operationEn: operation.nameEn,
+        typeAr: operation.operationType.nameAr,
+        typeEn: operation.operationType.nameEn,
+        approvalDate: dateToIso(operation.technicalApprovalDate),
+        departmentAr: mapped.departmentAr,
+        departmentEn: mapped.departmentEn,
+        approvedAmount: mapped.approvedAmount,
+        currentAmount: mapped.currentAmount,
+        status: mapped.status,
+        stagesSummaryAr: mapped.stages
+          .map((s) => `${s.nameAr}: ${s.plannedStart}→${s.plannedDue} (${s.status})`)
+          .join(" · "),
+        stagesSummaryEn: mapped.stages
+          .map((s) => `${s.nameEn}: ${s.plannedStart}→${s.plannedDue} (${s.status})`)
+          .join(" · "),
+        tranchesSummary: mapped.fundingTranches
+          .map((t) => `#${t.sequence} ${t.sentAt} ${t.amount}`)
+          .join(" · "),
+        fundingTotal: mapped.fundingTranches.reduce((sum, t) => addMoney(sum, t.amount), "0.00"),
+      });
+    }
+  }
+  return rows;
+}
+
+export async function getOperation(user: CurrentUser, id: string, departmentId?: string): Promise<OperationDetail | null> {
+  const today = todayISO();
+  const scopedDepartmentId = isDepartmentRole(user.role)
+    ? user.departmentId ?? "__none__"
+    : departmentId;
   const operation = await prisma.operation.findFirst({
     where: {
       id,
@@ -252,13 +345,20 @@ export async function getOperation(user: CurrentUser, id: string): Promise<Opera
     include: {
       ...operationInclude,
       assignments: {
-        where: isDepartmentRole(user.role) ? { isDeleted: false, departmentId: user.departmentId ?? "__none__" } : { isDeleted: false },
+        where: {
+          isDeleted: false,
+          ...(scopedDepartmentId ? { departmentId: scopedDepartmentId } : {}),
+        },
         include: assignmentInclude,
         orderBy: { department: { sortOrder: "asc" } },
       },
     },
   });
   if (!operation || operation.assignments.length === 0) return null;
+  if (departmentId && !isDepartmentRole(user.role)) {
+    const allowed = operation.assignments.some((row) => row.departmentId === departmentId);
+    if (!allowed) return null;
+  }
   const assignments = operation.assignments.map((item) => mapAssignment(item, today));
   return {
     id: operation.id,
@@ -327,16 +427,27 @@ export async function getDashboard(user: CurrentUser): Promise<DashboardData> {
     };
   });
 
+  const sector = !isDepartmentRole(user.role);
   const statusCount = new Map<StageVisualStatus, number>();
-  for (const item of items) statusCount.set(item.status, (statusCount.get(item.status) ?? 0) + 1);
-  const statusMeta: { key: StageVisualStatus; labelAr: string; labelEn: string; tone: string }[] = [
-    { key: "overdue", labelAr: "متأخر", labelEn: "Overdue", tone: "danger" },
-    { key: "due_soon", labelAr: "قرب الموعد", labelEn: "Due soon", tone: "warning" },
-    { key: "halfway", labelAr: "منتصف المدة", labelEn: "Halfway", tone: "primary" },
-    { key: "on_track", labelAr: "على المسار", labelEn: "On track", tone: "success" },
-    { key: "pending", labelAr: "لم تبدأ", labelEn: "Pending", tone: "muted" },
-    { key: "completed", labelAr: "مكتمل", labelEn: "Completed", tone: "success" },
-  ];
+  for (const item of items) {
+    if (sector && item.status !== "overdue" && item.status !== "completed" && item.status !== "on_track" && item.status !== "pending") {
+      // sector charts focus on overdue vs in-execution later; still count raw for dept views
+    }
+    statusCount.set(item.status, (statusCount.get(item.status) ?? 0) + 1);
+  }
+  const statusMeta: { key: StageVisualStatus; labelAr: string; labelEn: string; tone: string }[] = sector
+    ? [
+        { key: "overdue", labelAr: "متأخر", labelEn: "Overdue", tone: "danger" },
+        { key: "on_track", labelAr: "في التنفيذ", labelEn: "In execution", tone: "success" },
+      ]
+    : [
+        { key: "overdue", labelAr: "متأخر", labelEn: "Overdue", tone: "danger" },
+        { key: "due_soon", labelAr: "قرب الموعد", labelEn: "Due soon", tone: "warning" },
+        { key: "halfway", labelAr: "منتصف المدة", labelEn: "Halfway", tone: "primary" },
+        { key: "on_track", labelAr: "على المسار", labelEn: "On track", tone: "success" },
+        { key: "pending", labelAr: "لم تبدأ", labelEn: "Pending", tone: "muted" },
+        { key: "completed", labelAr: "مكتمل", labelEn: "Completed", tone: "success" },
+      ];
   const typeCount = new Map<string, { labelAr: string; labelEn: string; value: number }>();
   for (const item of items) {
     const key = `${item.typeAr}||${item.typeEn}`;
@@ -346,11 +457,13 @@ export async function getDashboard(user: CurrentUser): Promise<DashboardData> {
   }
   const alertCount = new Map<AlertType, number>();
   for (const alert of alerts) alertCount.set(alert.type, (alertCount.get(alert.type) ?? 0) + 1);
-  const alertMeta: { key: AlertType; labelAr: string; labelEn: string; tone: string }[] = [
-    { key: "OVERDUE", labelAr: "تجاوز", labelEn: "Overdue", tone: "danger" },
-    { key: "DUE_SOON", labelAr: "قبل 5 أيام", labelEn: "Due soon", tone: "warning" },
-    { key: "HALFWAY", labelAr: "منتصف المدة", labelEn: "Halfway", tone: "primary" },
-  ];
+  const alertMeta: { key: AlertType; labelAr: string; labelEn: string; tone: string }[] = sector
+    ? [{ key: "OVERDUE", labelAr: "تجاوز", labelEn: "Overdue", tone: "danger" }]
+    : [
+        { key: "OVERDUE", labelAr: "تجاوز", labelEn: "Overdue", tone: "danger" },
+        { key: "DUE_SOON", labelAr: "قبل 5 أيام", labelEn: "Due soon", tone: "warning" },
+        { key: "HALFWAY", labelAr: "منتصف المدة", labelEn: "Halfway", tone: "primary" },
+      ];
   const chartDepartments = (directory.length
     ? directory
     : [...byDepartment.entries()].map(([id, bucket]) => {
@@ -376,6 +489,85 @@ export async function getDashboard(user: CurrentUser): Promise<DashboardData> {
       secondary: item.overdueStages,
     }));
 
+  const overdueGroupMap = new Map<string, import("./view").OverdueGroup>();
+  for (const alert of alerts) {
+    if (sector && alert.type !== "OVERDUE") continue;
+    const key = `${alert.departmentId}::${alert.operationTypeAr}`;
+    const existing = overdueGroupMap.get(key);
+    const hrefItem = {
+      operationId: alert.operationId,
+      operationAr: alert.operationAr,
+      operationEn: alert.operationEn,
+      daysLate: alert.daysLate,
+    };
+    if (existing) {
+      existing.count += 1;
+      existing.items.push(hrefItem);
+    } else {
+      overdueGroupMap.set(key, {
+        departmentId: alert.departmentId,
+        departmentAr: alert.departmentAr,
+        departmentEn: alert.departmentEn,
+        typeAr: alert.operationTypeAr,
+        typeEn: alert.operationTypeEn,
+        count: 1,
+        items: [hrefItem],
+      });
+    }
+  }
+
+  const recentFeed: import("./view").RecentFeedItem[] = [];
+  for (const alert of alerts.filter((a) => a.type === "OVERDUE").slice(0, 4)) {
+    recentFeed.push({
+      kind: "overdue",
+      href: `/operations/${alert.operationId}?department=${alert.departmentId}`,
+      titleAr: `${alert.departmentAr} — ${alert.operationAr}`,
+      titleEn: `${alert.departmentEn} — ${alert.operationEn}`,
+      metaAr: `متأخر +${alert.daysLate}`,
+      metaEn: `Overdue +${alert.daysLate}`,
+      at: alert.plannedDue,
+    });
+  }
+  for (const op of items.slice(0, 4)) {
+    recentFeed.push({
+      kind: "new",
+      href: `/operations/${op.id}`,
+      titleAr: op.nameAr,
+      titleEn: op.nameEn || op.nameAr,
+      metaAr: `عملية مضافة · ${op.typeAr}`,
+      metaEn: `Newly added · ${op.typeEn}`,
+      at: op.approvalDate,
+    });
+  }
+  if (canSeeRevisions(user)) {
+    const revisions = await prisma.stageDateChange.findMany({
+      where: { progress: { operationDepartment: { isDeleted: false, operation: { isDeleted: false } } } },
+      include: {
+        createdBy: true,
+        progress: {
+          include: {
+            stageDefinition: true,
+            operationDepartment: { include: { department: true, operation: { include: { operationType: true } } } },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 4,
+    });
+    for (const rev of revisions) {
+      const od = rev.progress.operationDepartment;
+      recentFeed.push({
+        kind: "revision",
+        href: `/operations/${od.operation.id}?department=${od.departmentId}`,
+        titleAr: `${od.department.nameAr} — ${od.operation.nameAr}`,
+        titleEn: `${od.department.nameEn} — ${od.operation.nameEn || od.operation.nameAr}`,
+        metaAr: `${rev.progress.stageDefinition.nameAr}: ${dateToIso(rev.oldDate)} → ${dateToIso(rev.newDate)} · ${rev.reason}`,
+        metaEn: `${rev.progress.stageDefinition.nameEn}: ${dateToIso(rev.oldDate)} → ${dateToIso(rev.newDate)} · ${rev.reason}`,
+        at: dateToIso(rev.createdAt),
+      });
+    }
+  }
+
   return {
     kpis: {
       activeOperations: items.filter((item) => item.status !== "completed").length,
@@ -389,7 +581,13 @@ export async function getDashboard(user: CurrentUser): Promise<DashboardData> {
     departments: directory,
     charts: {
       status: statusMeta
-        .map((meta) => ({ ...meta, value: statusCount.get(meta.key) ?? 0 }))
+        .map((meta) => {
+          if (sector && meta.key === "on_track") {
+            const inExec = items.filter((item) => item.status !== "overdue" && item.status !== "completed").length;
+            return { ...meta, value: inExec };
+          }
+          return { ...meta, value: statusCount.get(meta.key) ?? 0 };
+        })
         .filter((item) => item.value > 0),
       types: [...typeCount.entries()].map(([key, item], index) => ({
         key,
@@ -403,6 +601,9 @@ export async function getDashboard(user: CurrentUser): Promise<DashboardData> {
         .filter((item) => item.value > 0),
       departments: chartDepartments,
     },
+    overdueGroups: [...overdueGroupMap.values()],
+    recentFeed: recentFeed.slice(0, 10),
+    isSector: sector,
   };
 }
 
@@ -498,9 +699,13 @@ export async function getDepartmentDetail(id: string) {
   };
 }
 
-export async function listTypes() {
+export async function listTypes(options?: { includeDeleted?: boolean }) {
   return prisma.operationType.findMany({
-    include: { stages: { orderBy: { sortOrder: "asc" } } },
+    where: options?.includeDeleted ? undefined : { deletedAt: null },
+    include: {
+      stages: { orderBy: { sortOrder: "asc" } },
+      deletedBy: options?.includeDeleted ? { select: { id: true, nameAr: true, nameEn: true, email: true } } : false,
+    },
     orderBy: { sortOrder: "asc" },
   });
 }
@@ -515,8 +720,96 @@ export async function listAudit() {
 
 export async function filterOptions() {
   const [types, departments] = await Promise.all([
-    prisma.operationType.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
+    prisma.operationType.findMany({ where: { isActive: true, deletedAt: null }, orderBy: { sortOrder: "asc" } }),
     prisma.department.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
   ]);
   return { types, departments };
+}
+
+const needInclude = {
+  department: true,
+  operationType: true,
+  createdBy: { select: { id: true, nameAr: true, nameEn: true, email: true } },
+  reviewedBy: { select: { id: true, nameAr: true, nameEn: true, email: true } },
+  linkedOperation: { select: { id: true, nameAr: true, nameEn: true } },
+} satisfies Prisma.OperationNeedRequestInclude;
+
+function needWhere(user: CurrentUser): Prisma.OperationNeedRequestWhereInput {
+  if (isDepartmentRole(user.role)) {
+    return { departmentId: user.departmentId ?? "__none__" };
+  }
+  return {};
+}
+
+export async function listNeedRequests(
+  user: CurrentUser,
+  filter: { status?: string; departmentId?: string } = {},
+) {
+  if (!can(user, "needs.view") && !can(user, "needs.create") && !can(user, "needs.respond")) return [];
+  return prisma.operationNeedRequest.findMany({
+    where: {
+      ...needWhere(user),
+      ...(filter.status ? { status: filter.status } : {}),
+      ...(!isDepartmentRole(user.role) && filter.departmentId ? { departmentId: filter.departmentId } : {}),
+    },
+    include: needInclude,
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+export async function getNeedRequest(user: CurrentUser, id: string) {
+  if (!can(user, "needs.view") && !can(user, "needs.create") && !can(user, "needs.respond")) return null;
+  const row = await prisma.operationNeedRequest.findFirst({
+    where: { id, ...needWhere(user) },
+    include: needInclude,
+  });
+  if (!row) return null;
+  if (!isDepartmentRole(user.role) && can(user, "needs.respond") && row.status === "SUBMITTED") {
+    await prisma.operationNeedRequest.update({
+      where: { id: row.id },
+      data: { status: "UNDER_REVIEW" },
+    });
+    return { ...row, status: "UNDER_REVIEW" };
+  }
+  return row;
+}
+
+export async function countSimilarNeedsInFy(
+  departmentId: string,
+  operationTypeId: string,
+  desiredStartIso?: string | null,
+  excludeId?: string,
+) {
+  const ref = desiredStartIso || todayISO();
+  const fy = fiscalYearOf(ref);
+  return prisma.operationNeedRequest.count({
+    where: {
+      departmentId,
+      operationTypeId,
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+      status: { not: "REJECTED" },
+      OR: [
+        { desiredStartDate: { gte: parseISODate(fy.start), lte: parseISODate(fy.end) } },
+        { desiredStartDate: null, createdAt: { gte: parseISODate(fy.start), lte: parseISODate(fy.end) } },
+      ],
+    },
+  });
+}
+
+export async function listLinkableOperations(user: CurrentUser) {
+  if (!can(user, "needs.respond")) return [];
+  return prisma.operation.findMany({
+    where: { isDeleted: false },
+    select: {
+      id: true,
+      nameAr: true,
+      nameEn: true,
+      assignments: {
+        where: { isDeleted: false },
+        select: { id: true, departmentId: true, department: { select: { nameAr: true, nameEn: true } } },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 80,
+  });
 }

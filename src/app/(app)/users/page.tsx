@@ -9,7 +9,7 @@ import { roleHint, roleLabel, statusHint } from "@/lib/labels";
 import { getLocale } from "@/lib/locale";
 import { getPageSize } from "@/lib/page-size";
 import { pageOf } from "@/lib/paging";
-import { can, creatableRoles, grantsOf, isDepartmentRole, parseTasks, rankOf } from "@/lib/permissions";
+import { assignableTaskKeys, can, canSeeUserAccount, creatableRoles, grantsOf, isDepartmentRole, parseTasks, rankOf } from "@/lib/permissions";
 import { listDirectory, listUsers } from "@/lib/queries";
 import { locName, tx } from "@/lib/text";
 
@@ -19,8 +19,10 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
   const locale = await getLocale();
   const query = await searchParams;
   const size = await getPageSize();
-  const [users, departments] = await Promise.all([listUsers(user), listDirectory()]);
+  const [usersRaw, departments] = await Promise.all([listUsers(user), listDirectory()]);
+  const users = usersRaw.filter((account) => canSeeUserAccount(user, account));
   const view = pageOf(users, query.page, size);
+  const taskOptions = assignableTaskKeys(user);
   return (
     <>
       <PageHeader kicker={tx(locale, "الحسابات", "Accounts")} title={tx(locale, "المستخدمون", "Users")} lede={tx(locale, "ترى حسابات جهتك فقط. أيقونة البطاقة تفتح الدور والحالة والمهام، والمسؤول الأعلى يعدّلها من النافذة نفسها.", "You only see accounts in your own organization. The card icon opens the role, status, and tasks. A super admin edits them from that same window.")}>
@@ -74,6 +76,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
                     statusHint={statusHint(locale, account.isActive ? "active" : "inactive")}
                     statusClass={account.isActive ? "chip on_track" : "chip overdue"}
                     tasks={tasks}
+                    editableTasks={taskOptions}
                     custom={Boolean(parseTasks(account.tasks))}
                     canApplyRole={rankOf(user.role) === "SUPER_ADMIN"}
                     manageable={manageable}

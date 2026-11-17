@@ -28,30 +28,53 @@ export default async function OperationsPage({ searchParams }: { searchParams: P
   const statuses = ["overdue", "due_soon", "halfway", "on_track", "pending", "completed"] as const;
   const size = await getPageSize();
   const view = pageOf(items, query.page, size);
+  const filtersActive = Boolean(query.q || query.type || query.department || query.status);
+  const exportQs = new URLSearchParams();
+  if (query.q) exportQs.set("q", query.q);
+  if (query.type) exportQs.set("type", query.type);
+  if (query.department) exportQs.set("department", query.department);
+  if (query.status) exportQs.set("status", query.status);
+  const exportQuery = exportQs.toString() ? `?${exportQs}` : "";
   return (
     <>
       <PageHeader kicker={tx(locale, "التعاقدات", "Contracts")} title={tx(locale, "العمليات", "Operations")} lede={tx(locale, "كل عملية لها نوع وتاريخ موافقة فنية، ويمكن أن تخدم أكثر من إدارة.", "Each operation has a type and a technical approval date, and can serve more than one department.")}>
-        {manage ? (
-          <CreateOperationModal
-            startOpen={query.new === "1"}
-            types={types.filter((type) => type.isActive).map((type) => ({
-              id: type.id,
-              code: type.code,
-              nameAr: type.nameAr,
-              nameEn: type.nameEn,
-              stages: type.stages.filter((stage) => stage.isActive).map((stage) => ({
-                code: stage.code,
-                nameAr: stage.nameAr,
-                nameEn: stage.nameEn,
-                sortOrder: stage.sortOrder,
-                durationMonths: stage.durationMonths,
-                durationDays: stage.durationDays,
-                anchor: stage.anchor,
-              })),
-            }))}
-            departments={departments.map((department) => ({ id: department.id, code: department.code, nameAr: department.nameAr, nameEn: department.nameEn }))}
-          />
-        ) : null}
+        <div className="row">
+          {filtersActive && (can(user, "reports.export") || can(user, "reports.print")) ? (
+            <>
+              {can(user, "reports.export") ? (
+                <a className="btn btn-ghost" href={`/api/reports/operations-excel${exportQuery}`}>
+                  {tx(locale, "تصدير Excel", "Export Excel")}
+                </a>
+              ) : null}
+              {can(user, "reports.print") ? (
+                <Link className="btn btn-ghost" href={`/print/operations${exportQuery}`} target="_blank">
+                  {tx(locale, "طباعة", "Print")}
+                </Link>
+              ) : null}
+            </>
+          ) : null}
+          {manage ? (
+            <CreateOperationModal
+              startOpen={query.new === "1"}
+              types={types.filter((type) => type.isActive).map((type) => ({
+                id: type.id,
+                code: type.code,
+                nameAr: type.nameAr,
+                nameEn: type.nameEn,
+                stages: type.stages.filter((stage) => stage.isActive).map((stage) => ({
+                  code: stage.code,
+                  nameAr: stage.nameAr,
+                  nameEn: stage.nameEn,
+                  sortOrder: stage.sortOrder,
+                  durationMonths: stage.durationMonths,
+                  durationDays: stage.durationDays,
+                  anchor: stage.anchor,
+                })),
+              }))}
+              departments={departments.map((department) => ({ id: department.id, code: department.code, nameAr: department.nameAr, nameEn: department.nameEn }))}
+            />
+          ) : null}
+        </div>
       </PageHeader>
       <form className="filters" action="/operations">
         <label className="field"><span>{tx(locale, "بحث", "Search")}</span><input className="input" name="q" defaultValue={query.q ?? ""} /></label>

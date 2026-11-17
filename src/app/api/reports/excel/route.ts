@@ -11,7 +11,9 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const user = await getCurrentUser();
   if (!user) return new NextResponse("Unauthorized", { status: 401 });
-  if (!can(user, "reports.export")) return new NextResponse("Forbidden", { status: 403 });
+  if (!can(user, "reports.export") && !can(user, "reports.overrun")) {
+    return new NextResponse("Forbidden", { status: 403 });
+  }
   const url = new URL(request.url);
   const rows = await listAlerts(user, {
     departmentId: url.searchParams.get("departmentId") || undefined,

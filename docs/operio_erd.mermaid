@@ -2,11 +2,19 @@ erDiagram
   sectors ||--o{ departments : oversees
   departments ||--o{ users : accounts
   departments ||--o{ operation_departments : assigned
+  departments ||--o{ operation_need_requests : requests
   operation_types ||--o{ stage_definitions : defines
   operation_types ||--o{ operations : classifies
+  operation_types ||--o{ operation_need_requests : requestedAs
   users ||--o{ operations : creates
+  users ||--o{ operation_types : softDeletes
+  users ||--o{ funding_tranches : records
+  users ||--o{ operation_need_requests : creates
+  users ||--o{ operation_need_requests : reviews
   operations ||--o{ operation_departments : reaches
+  operations ||--o{ operation_need_requests : mayLink
   operation_departments ||--o{ financial_adjustments : records
+  operation_departments ||--o{ funding_tranches : fundedBy
   operation_departments ||--o{ department_stage_progress : tracks
   stage_definitions ||--o{ department_stage_progress : applies
   department_stage_progress ||--o{ stage_date_changes : revises

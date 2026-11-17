@@ -17,7 +17,7 @@ const ar = {
     users: "المستخدمون",
     settings: "الإعدادات",
     audit: "سجل النشاط",
-    model: "نموذج البيانات",
+    needs: "طلبات احتياج العمليات",
   },
   login: {
     welcome: "تسجيل الدخول",
@@ -28,6 +28,7 @@ const ar = {
     demoHint: "كلمة المرور الموحدة للحسابات التجريبية",
     show: "إظهار",
     hide: "إخفاء",
+    underLogo: "متابعة عمليات تعاقدات الإدارات",
   },
   common: {
     logout: "خروج",
@@ -117,7 +118,7 @@ export const dictionaries = pair(ar, {
     users: "Users",
     settings: "Settings",
     audit: "Activity log",
-    model: "Data model",
+    needs: "Operation needs requests",
   },
   login: {
     welcome: "Sign in",
@@ -128,6 +129,7 @@ export const dictionaries = pair(ar, {
     demoHint: "Shared password for the demo accounts",
     show: "Show",
     hide: "Hide",
+    underLogo: "Department contracting operations follow-up",
   },
   common: {
     logout: "Sign out",
