@@ -36,9 +36,9 @@ export default async function RevisionsPage({ searchParams }: { searchParams: Pr
         <table className="data">
           <thead>
             <tr>
-              <th>{tx(locale, "متى", "When")}</th>
-              <th>{tx(locale, "العملية", "Operation")}</th>
-              <th>{tx(locale, "الإدارة / المرحلة", "Department / stage")}</th>
+              <th className="col-date">{tx(locale, "متى", "When")}</th>
+              <th className="col-name">{tx(locale, "العملية", "Operation")}</th>
+              <th className="col-dept">{tx(locale, "الإدارة / المرحلة", "Department / stage")}</th>
               <th>{tx(locale, "التعديل", "Change")}</th>
               <th>{tx(locale, "السبب", "Reason")}</th>
               <th />
@@ -54,16 +54,16 @@ export default async function RevisionsPage({ searchParams }: { searchParams: Pr
             ) : (
               view.rows.map((row) => (
                 <tr key={row.id}>
-                  <td>
+                  <td className="col-date">
                     {formatStamp(row.createdAt, locale)}
                     <div className="fine">{locName(locale, row.actorAr, row.actorEn)}</div>
                   </td>
-                  <td>
+                  <td className="col-name">
                     <Link className="link" href={`/operations/${row.operationId}`}>
                       {locName(locale, row.operationAr, row.operationEn)}
                     </Link>
                   </td>
-                  <td>
+                  <td className="col-dept">
                     {locName(locale, row.departmentAr, row.departmentEn)}
                     <div className="fine">{locName(locale, row.stageAr, row.stageEn)}</div>
                   </td>

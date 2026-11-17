@@ -487,22 +487,90 @@ h3 { margin: 0; font-size: 16px; }
 .chart-stack-hint.is-idle { color: var(--muted); }
 @keyframes chart-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .page-header-copy { min-width: 0; }
-.chip { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 800; background: var(--surface-2); color: var(--muted); cursor: help; max-width: 100%; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.25;
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: help;
+  white-space: nowrap;
+  width: max-content;
+  max-width: none;
+  flex-shrink: 0;
+}
 .chip.overdue { background: var(--danger-soft); color: var(--danger); }
 .chip.due_soon { background: var(--warning-soft); color: var(--warning); }
 .chip.halfway { background: var(--primary-soft); color: var(--primary); }
 .chip.on_track, .chip.completed { background: var(--success-soft); color: var(--success); }
 .chip.gold { background: var(--gold-soft); color: var(--gold); }
-.table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); -webkit-overflow-scrolling: touch; }
-table.data { width: 100%; min-width: 640px; border-collapse: collapse; font-size: 15px; }
-table.data th, table.data td { padding: 14px 16px; text-align: start; border-bottom: 1px solid var(--line); vertical-align: top; }
-table.data th { position: sticky; top: 0; z-index: 1; color: var(--muted); font-size: 13px; background: var(--surface-2); font-weight: 800; white-space: nowrap; }
+.table-wrap {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+table.data {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
+  font-size: 15px;
+  table-layout: auto;
+}
+table.data th, table.data td {
+  padding: 14px 16px;
+  text-align: start;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+table.data th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: var(--muted);
+  font-size: 13px;
+  background: var(--surface-2);
+  font-weight: 800;
+  white-space: nowrap;
+}
+/* Comfortable columns: scroll horizontally instead of crushing content */
+table.data .col-name {
+  min-width: 260px;
+  max-width: 420px;
+}
+table.data .col-name .link,
+table.data td.col-name {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.45;
+}
+table.data .col-type { min-width: 140px; }
+table.data .col-dept { min-width: 160px; }
+table.data .col-date,
+table.data .col-money { min-width: 110px; white-space: nowrap; }
+table.data .col-status {
+  min-width: 148px;
+  width: 1%;
+  white-space: nowrap;
+}
+table.data .col-status .tip-host,
+table.data .col-status .chip {
+  max-width: none;
+}
 .pager { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; color: var(--muted); font-weight: 700; }
 .page-size { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
 .page-size .select { width: auto; min-width: 76px; padding-block: 6px; }
 .pager [aria-disabled="true"] { opacity: 0.45; pointer-events: none; }
 .task-list { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow: auto; }
-.tip-host { position: relative; display: inline-flex; }
+.tip-host { position: relative; display: inline-flex; width: max-content; max-width: none; flex-shrink: 0; }
 .tip-host.nav-tip { display: block; }
 .tip-float {
   position: fixed;
@@ -1021,9 +1089,12 @@ table.data td.empty {
     border-radius: var(--radius) var(--radius) 0 0;
   }
   .table-wrap { margin-inline: 0; border-radius: var(--radius-sm); }
-  table.data { min-width: 520px; font-size: 13px; }
+  /* Keep a wide floor so columns stay readable; user scrolls horizontally */
+  table.data { min-width: 920px; font-size: 13.5px; }
   table.data th,
-  table.data td { padding: 10px 12px; }
+  table.data td { padding: 12px 14px; }
+  table.data .col-name { min-width: 240px; max-width: 360px; }
+  table.data .col-status { min-width: 140px; }
   .demo-grid { grid-template-columns: 1fr; }
   .profile { grid-template-columns: 1fr; gap: 4px; }
   .stage-card .meta-grid,
@@ -1094,7 +1165,7 @@ table.data td.empty {
   position: relative;
   min-height: 260px;
 }
-.table-loading table.data { min-width: 560px; }
+.table-loading table.data { min-width: 920px; }
 .table-loading tbody td { opacity: 0.72; }
 .table-loading-overlay {
   position: absolute;

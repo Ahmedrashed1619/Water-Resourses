@@ -29,19 +29,19 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
         <table className="data">
           <thead>
             <tr>
-              <th>{tx(locale, "العملية", "Operation")}</th>
-              <th>{tx(locale, "الإدارة", "Department")}</th>
-              <th>{tx(locale, "الأصلي", "Original")}</th>
-              <th>{tx(locale, "الفروق", "Deltas")}</th>
-              <th>{tx(locale, "الحالي", "Current")}</th>
-              <th>{tx(locale, "الفترة", "Window")}</th>
+              <th className="col-name">{tx(locale, "العملية", "Operation")}</th>
+              <th className="col-dept">{tx(locale, "الإدارة", "Department")}</th>
+              <th className="col-money">{tx(locale, "الأصلي", "Original")}</th>
+              <th className="col-money">{tx(locale, "الفروق", "Deltas")}</th>
+              <th className="col-money">{tx(locale, "الحالي", "Current")}</th>
+              <th className="col-date">{tx(locale, "الفترة", "Window")}</th>
             </tr>
           </thead>
           <tbody>
             {view.rows.map((row) => (
               <tr key={row.assignment.id}>
-                <td><Link className="link" href={`/operations/${row.operationId}`}>{locName(locale, row.operationAr, row.operationEn)}</Link><div className="fine">{formatDate(row.approvalDate)}</div></td>
-                <td>{locName(locale, row.assignment.departmentAr, row.assignment.departmentEn)}</td>
+                <td className="col-name"><Link className="link" href={`/operations/${row.operationId}`}>{locName(locale, row.operationAr, row.operationEn)}</Link><div className="fine">{formatDate(row.approvalDate)}</div></td>
+                <td className="col-dept">{locName(locale, row.assignment.departmentAr, row.assignment.departmentEn)}</td>
                 <td className="num">{formatMoney(row.assignment.approvedAmount, locale)}</td>
                 <td className="num">{formatMoney(row.assignment.delta, locale)}<div className="fine">{row.assignment.adjustments.length}</div></td>
                 <td className="num">{formatMoney(row.assignment.currentAmount, locale)}</td>

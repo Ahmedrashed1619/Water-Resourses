@@ -906,17 +906,8 @@ export async function syncAlerts() {
   }
 }
 
-/** Layout-safe throttle: at most one full sync per ~45s across navigations. */
 export async function syncAlertsThrottled() {
-  const { unstable_cache } = await import("next/cache");
-  return unstable_cache(
-    async () => {
-      await syncAlerts();
-      return true;
-    },
-    ["sync-alerts-throttled"],
-    { revalidate: 45 },
-  )();
+  await syncAlerts();
 }
 
 export async function softDeleteType(user: CurrentUser, typeId: string) {

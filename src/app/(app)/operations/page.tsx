@@ -149,12 +149,12 @@ export default async function OperationsPage({
         <table className="data">
           <thead>
             <tr>
-              <th>{tx(locale, "العملية", "Operation")}</th>
-              <th>{tx(locale, "النوع", "Type")}</th>
-              <th>{tx(locale, "الموافقة", "Approval")}</th>
-              <th>{tx(locale, "الإدارات", "Departments")}</th>
-              <th>{tx(locale, "الاعتماد الحالي", "Current amount")}</th>
-              <th>{tx(locale, "الحالة", "Status")}</th>
+              <th className="col-name">{tx(locale, "العملية", "Operation")}</th>
+              <th className="col-type">{tx(locale, "النوع", "Type")}</th>
+              <th className="col-date">{tx(locale, "الموافقة", "Approval")}</th>
+              <th className="col-dept">{tx(locale, "الإدارات", "Departments")}</th>
+              <th className="col-money">{tx(locale, "الاعتماد الحالي", "Current amount")}</th>
+              <th className="col-status">{tx(locale, "الحالة", "Status")}</th>
             </tr>
           </thead>
           <tbody>
@@ -167,19 +167,19 @@ export default async function OperationsPage({
             ) : (
               view.rows.map((item) => (
                 <tr key={item.id}>
-                  <td>
+                  <td className="col-name">
                     <Link className="link" href={`/operations/${item.id}`}>
                       {locName(locale, item.nameAr, item.nameEn)}
                     </Link>
                   </td>
-                  <td>{locName(locale, item.typeAr, item.typeEn)}</td>
-                  <td className="num">{formatDate(item.approvalDate)}</td>
-                  <td>
+                  <td className="col-type">{locName(locale, item.typeAr, item.typeEn)}</td>
+                  <td className="num col-date">{formatDate(item.approvalDate)}</td>
+                  <td className="col-dept">
                     {item.departmentCount}
                     <div className="fine">{locName(locale, item.departmentsAr, item.departmentsEn)}</div>
                   </td>
-                  <td className="num">{formatMoney(item.amount, locale)}</td>
-                  <td>
+                  <td className="num col-money">{formatMoney(item.amount, locale)}</td>
+                  <td className="col-status">
                     <DerivedStatusChip locale={locale} status={item.derivedStatus} daysLate={item.daysLate} />
                   </td>
                 </tr>

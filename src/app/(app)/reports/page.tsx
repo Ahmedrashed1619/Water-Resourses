@@ -141,13 +141,13 @@ export default async function ReportsPage({
             <table className="data">
               <thead>
                 <tr>
-                  <th>{tx(locale, "العملية", "Operation")}</th>
-                  <th>{tx(locale, "النوع", "Type")}</th>
-                  <th>{tx(locale, "الإدارة", "Department")}</th>
-                  <th>{tx(locale, "الاعتماد", "Approval")}</th>
-                  <th>{tx(locale, "الحالة", "Status")}</th>
-                  <th>{tx(locale, "المعتمد", "Approved")}</th>
-                  <th>{tx(locale, "الحالي", "Current")}</th>
+                  <th className="col-name">{tx(locale, "العملية", "Operation")}</th>
+                  <th className="col-type">{tx(locale, "النوع", "Type")}</th>
+                  <th className="col-dept">{tx(locale, "الإدارة", "Department")}</th>
+                  <th className="col-date">{tx(locale, "الاعتماد", "Approval")}</th>
+                  <th className="col-status">{tx(locale, "الحالة", "Status")}</th>
+                  <th className="col-money">{tx(locale, "المعتمد", "Approved")}</th>
+                  <th className="col-money">{tx(locale, "الحالي", "Current")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -160,15 +160,15 @@ export default async function ReportsPage({
                 ) : (
                   opRows.map((row, index) => (
                     <tr key={`${row.operationId}-${row.departmentAr}-${index}`}>
-                      <td>{locName(locale, row.operationAr, row.operationEn)}</td>
-                      <td>{locName(locale, row.typeAr, row.typeEn)}</td>
-                      <td>{locName(locale, row.departmentAr, row.departmentEn)}</td>
-                      <td>{formatDate(row.approvalDate)}</td>
-                      <td>
+                      <td className="col-name">{locName(locale, row.operationAr, row.operationEn)}</td>
+                      <td className="col-type">{locName(locale, row.typeAr, row.typeEn)}</td>
+                      <td className="col-dept">{locName(locale, row.departmentAr, row.departmentEn)}</td>
+                      <td className="col-date">{formatDate(row.approvalDate)}</td>
+                      <td className="col-status">
                         <StatusChip locale={locale} status={row.status} />
                       </td>
-                      <td>{row.approvedAmount}</td>
-                      <td>{row.currentAmount}</td>
+                      <td className="col-money">{row.approvedAmount}</td>
+                      <td className="col-money">{row.currentAmount}</td>
                     </tr>
                   ))
                 )}

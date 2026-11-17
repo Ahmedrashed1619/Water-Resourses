@@ -64,12 +64,12 @@ export function AlertsPanel({
           <thead>
             <tr>
               {canManage ? <th /> : null}
-              <th>{t("النوع", "Type")}</th>
-              <th>{t("العملية", "Operation")}</th>
-              <th>{t("الإدارة", "Department")}</th>
+              <th className="col-type">{t("النوع", "Type")}</th>
+              <th className="col-name">{t("العملية", "Operation")}</th>
+              <th className="col-dept">{t("الإدارة", "Department")}</th>
               <th>{t("المرحلة", "Stage")}</th>
-              <th>{t("الاستحقاق", "Due")}</th>
-              <th>{t("التأخير", "Delay")}</th>
+              <th className="col-date">{t("الاستحقاق", "Due")}</th>
+              <th className="col-date">{t("التأخير", "Delay")}</th>
               {canManage ? <th /> : null}
             </tr>
           </thead>
@@ -88,16 +88,16 @@ export function AlertsPanel({
                       <input type="checkbox" checked={selected.includes(row.id)} onChange={() => toggle(row.id)} />
                     </td>
                   ) : null}
-                  <td>{alertLabel(locale, row.type as "OVERDUE" | "HALFWAY" | "DUE_SOON")}</td>
-                  <td>
+                  <td className="col-type">{alertLabel(locale, row.type as "OVERDUE" | "HALFWAY" | "DUE_SOON")}</td>
+                  <td className="col-name">
                     <a className="link" href={`/operations/${row.operationId}`}>
                       {name(row.operationAr, row.operationEn)}
                     </a>
                   </td>
-                  <td>{name(row.departmentAr, row.departmentEn)}</td>
+                  <td className="col-dept">{name(row.departmentAr, row.departmentEn)}</td>
                   <td>{name(row.stageAr, row.stageEn)}</td>
-                  <td className="num">{formatDate(row.plannedDue)}</td>
-                  <td>{daysPhrase(locale, row.daysLate)}</td>
+                  <td className="num col-date">{formatDate(row.plannedDue)}</td>
+                  <td className="col-date">{daysPhrase(locale, row.daysLate)}</td>
                   {canManage ? (
                     <td className="table-actions-cell">
                       <BoundForm action={deleteAlertAction} silent>
@@ -147,10 +147,10 @@ export function AlertsPanel({
             <table className="data">
               <thead>
                 <tr>
-                  <th>{t("العملية", "Operation")}</th>
-                  <th>{t("الإدارة", "Department")}</th>
+                  <th className="col-name">{t("العملية", "Operation")}</th>
+                  <th className="col-dept">{t("الإدارة", "Department")}</th>
                   <th>{t("حُذف بواسطة", "Deleted by")}</th>
-                  <th>{t("متى", "When")}</th>
+                  <th className="col-date">{t("متى", "When")}</th>
                   {canManage ? <th /> : null}
                 </tr>
               </thead>
@@ -164,8 +164,8 @@ export function AlertsPanel({
                 ) : (
                   deleted.map((row) => (
                     <tr key={row.id}>
-                      <td>{name(row.operationAr, row.operationEn)}</td>
-                      <td>{name(row.departmentAr, row.departmentEn)}</td>
+                      <td className="col-name">{name(row.operationAr, row.operationEn)}</td>
+                      <td className="col-dept">{name(row.departmentAr, row.departmentEn)}</td>
                       <td>{row.deletedByAr || row.deletedByEn ? name(row.deletedByAr ?? "", row.deletedByEn ?? "") : "—"}</td>
                       <td className="num">{row.deletedAt ? formatStamp(row.deletedAt, locale) : "—"}</td>
                       {canManage ? (

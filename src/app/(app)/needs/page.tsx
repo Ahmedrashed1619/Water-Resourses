@@ -108,12 +108,12 @@ export default async function NeedsPage({
         <table className="data">
           <thead>
             <tr>
-              <th>{tx(locale, "العنوان", "Title")}</th>
-              <th>{tx(locale, "الإدارة", "Department")}</th>
-              <th>{tx(locale, "النوع", "Type")}</th>
+              <th className="col-name">{tx(locale, "العنوان", "Title")}</th>
+              <th className="col-dept">{tx(locale, "الإدارة", "Department")}</th>
+              <th className="col-type">{tx(locale, "النوع", "Type")}</th>
               <th>{tx(locale, "الدعم", "Support")}</th>
-              <th>{tx(locale, "الحالة", "Status")}</th>
-              <th>{tx(locale, "التاريخ", "Date")}</th>
+              <th className="col-status">{tx(locale, "الحالة", "Status")}</th>
+              <th className="col-date">{tx(locale, "التاريخ", "Date")}</th>
             </tr>
           </thead>
           <tbody>
@@ -126,21 +126,21 @@ export default async function NeedsPage({
             ) : (
               rows.map((row) => (
                 <tr key={row.id}>
-                  <td>
+                  <td className="col-name">
                     <Link className="link" href={`/needs/${row.id}`}>
                       {row.title}
                     </Link>
                     {row.estimatedValue ? <div className="fine">{formatMoney(row.estimatedValue, locale)}</div> : null}
                   </td>
-                  <td>{locName(locale, row.department.nameAr, row.department.nameEn)}</td>
-                  <td>{locName(locale, row.operationType.nameAr, row.operationType.nameEn)}</td>
+                  <td className="col-dept">{locName(locale, row.department.nameAr, row.department.nameEn)}</td>
+                  <td className="col-type">{locName(locale, row.operationType.nameAr, row.operationType.nameEn)}</td>
                   <td>{needSupportLabel(locale, row.requestedSupport)}</td>
-                  <td>
+                  <td className="col-status">
                     <span className={`chip ${row.status === "REJECTED" ? "overdue" : row.status.includes("APPROVED") ? "on_track" : "halfway"}`}>
                       {needStatusLabel(locale, row.status)}
                     </span>
                   </td>
-                  <td className="num">{formatDate(row.createdAt.toISOString().slice(0, 10))}</td>
+                  <td className="num col-date">{formatDate(row.createdAt.toISOString().slice(0, 10))}</td>
                 </tr>
               ))
             )}

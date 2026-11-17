@@ -1,6 +1,5 @@
 import "server-only";
 import { Prisma } from "@prisma/client";
-import { cachedQuery, tags } from "./cache";
 import { prisma } from "./prisma";
 import type { CurrentUser } from "./auth";
 import { dateToIso, diffDays, parseISODate, todayISO } from "./dates";
@@ -169,40 +168,33 @@ const operationInclude = {
 } satisfies Prisma.OperationInclude;
 
 export async function getShellCounts(user: CurrentUser) {
-  return cachedQuery(
-    ["shell-counts", user.id, user.role, user.departmentId ?? ""],
-    [tags.shell, tags.alerts, tags.revisions, tags.needs],
-    async () => {
-      const audience = audienceFor(user.role);
-      const [alerts, revisions, needs] = await Promise.all([
-        prisma.alert.count({
+  const audience = audienceFor(user.role);
+  const [alerts, revisions, needs] = await Promise.all([
+    prisma.alert.count({
+      where: {
+        isDeleted: false,
+        deletedAt: null,
+        resolvedAt: null,
+        audience,
+        type: isDepartmentRole(user.role) ? { in: ["HALFWAY", "DUE_SOON"] } : "OVERDUE",
+        progress: { operationDepartment: assignmentWhere(user) },
+      },
+    }),
+    canSeeRevisions(user)
+      ? prisma.stageDateChange.count({
+          where: { seenAt: null, progress: { operationDepartment: { isDeleted: false, operation: { isDeleted: false } } } },
+        })
+      : Promise.resolve(0),
+    can(user, "needs.view")
+      ? prisma.operationNeedRequest.count({
           where: {
-            isDeleted: false,
-            deletedAt: null,
-            resolvedAt: null,
-            audience,
-            type: isDepartmentRole(user.role) ? { in: ["HALFWAY", "DUE_SOON"] } : "OVERDUE",
-            progress: { operationDepartment: assignmentWhere(user) },
+            status: "SUBMITTED",
+            ...(isDepartmentRole(user.role) ? { departmentId: user.departmentId ?? "__none__" } : {}),
           },
-        }),
-        canSeeRevisions(user)
-          ? prisma.stageDateChange.count({
-              where: { seenAt: null, progress: { operationDepartment: { isDeleted: false, operation: { isDeleted: false } } } },
-            })
-          : Promise.resolve(0),
-        can(user, "needs.view")
-          ? prisma.operationNeedRequest.count({
-              where: {
-                status: "SUBMITTED",
-                ...(isDepartmentRole(user.role) ? { departmentId: user.departmentId ?? "__none__" } : {}),
-              },
-            })
-          : Promise.resolve(0),
-      ]);
-      return { alerts, revisions, needs };
-    },
-    20,
-  );
+        })
+      : Promise.resolve(0),
+  ]);
+  return { alerts, revisions, needs };
 }
 
 function canSeeRevisions(user: CurrentUser) {
@@ -213,45 +205,29 @@ export async function listAlerts(
   user: CurrentUser,
   filter: { departmentId?: string; stageCode?: string; operationTypeId?: string } = {},
 ): Promise<AlertRow[]> {
-  return cachedQuery(
-    [
-      "alerts",
-      user.id,
-      user.role,
-      user.departmentId ?? "",
-      filter.departmentId ?? "",
-      filter.stageCode ?? "",
-      filter.operationTypeId ?? "",
-      todayISO(),
-    ],
-    [tags.alerts],
-    async () => {
-      const today = todayISO();
-      const departmentId = isDepartmentRole(user.role) ? user.departmentId ?? "__none__" : filter.departmentId;
-      const alerts = await prisma.alert.findMany({
-        where: {
+  const today = todayISO();
+  const departmentId = isDepartmentRole(user.role) ? user.departmentId ?? "__none__" : filter.departmentId;
+  const alerts = await prisma.alert.findMany({
+    where: {
+      isDeleted: false,
+      deletedAt: null,
+      resolvedAt: null,
+      audience: audienceFor(user.role),
+      type: isDepartmentRole(user.role) ? { in: ["HALFWAY", "DUE_SOON"] } : "OVERDUE",
+      progress: {
+        ...(filter.stageCode ? { stageDefinition: { code: filter.stageCode } } : {}),
+        operationDepartment: {
           isDeleted: false,
-          deletedAt: null,
-          resolvedAt: null,
-          audience: audienceFor(user.role),
-          type: isDepartmentRole(user.role) ? { in: ["HALFWAY", "DUE_SOON"] } : "OVERDUE",
-          progress: {
-            ...(filter.stageCode ? { stageDefinition: { code: filter.stageCode } } : {}),
-            operationDepartment: {
-              isDeleted: false,
-              operation: { isDeleted: false, ...(filter.operationTypeId ? { operationTypeId: filter.operationTypeId } : {}) },
-              ...(departmentId ? { departmentId } : {}),
-            },
-          },
+          operation: { isDeleted: false, ...(filter.operationTypeId ? { operationTypeId: filter.operationTypeId } : {}) },
+          ...(departmentId ? { departmentId } : {}),
         },
-        include: alertInclude,
-      });
-      return alerts
-        .map((alert) => mapAlertRow(alert, today))
-        .sort((a, b) => b.daysLate - a.daysLate || a.departmentAr.localeCompare(b.departmentAr, "ar"));
+      },
     },
-    20,
-  );
+    include: alertInclude,
+  });
+  return alerts
+    .map((alert) => mapAlertRow(alert, today))
+    .sort((a, b) => b.daysLate - a.daysLate || a.departmentAr.localeCompare(b.departmentAr, "ar"));
 }
 
 const alertInclude = {
@@ -327,32 +303,16 @@ export async function listOperations(
   user: CurrentUser,
   filter: { q?: string; typeId?: string; departmentId?: string; status?: string },
 ) {
-  return cachedQuery(
-    [
-      "ops-list",
-      user.id,
-      user.role,
-      user.departmentId ?? "",
-      filter.q ?? "",
-      filter.typeId ?? "",
-      filter.departmentId ?? "",
-      filter.status ?? "",
-    ],
-    [tags.operations],
-    async () => {
-      const operations = await loadFilteredOperations(user, filter);
-      const today = todayISO();
-      let items = operations.map((operation) => toListItem(operation, today));
-      // Default sector view: late + in progress when no status filter provided
-      if (!filter.status && !isDepartmentRole(user.role)) {
-        items = items.filter((item) => item.derivedStatus === "LATE" || item.derivedStatus === "IN_PROGRESS");
-      } else if (filter.status) {
-        items = items.filter((item) => matchesStatusFilter(item.derivedStatus, filter.status));
-      }
-      return items;
-    },
-    30,
-  );
+  const operations = await loadFilteredOperations(user, filter);
+  const today = todayISO();
+  let items = operations.map((operation) => toListItem(operation, today));
+  // Default sector view: late + in progress when no status filter provided
+  if (!filter.status && !isDepartmentRole(user.role)) {
+    items = items.filter((item) => item.derivedStatus === "LATE" || item.derivedStatus === "IN_PROGRESS");
+  } else if (filter.status) {
+    items = items.filter((item) => matchesStatusFilter(item.derivedStatus, filter.status));
+  }
+  return items;
 }
 
 async function loadFilteredOperations(
@@ -513,15 +473,6 @@ export async function getOperation(user: CurrentUser, id: string, departmentId?:
 }
 
 export async function getDashboard(user: CurrentUser): Promise<DashboardData> {
-  return cachedQuery(
-    ["dashboard", user.id, user.role, user.departmentId ?? "", todayISO()],
-    [tags.dashboard, tags.operations, tags.alerts, tags.revisions, tags.shell],
-    () => buildDashboard(user),
-    20,
-  );
-}
-
-async function buildDashboard(user: CurrentUser): Promise<DashboardData> {
   const today = todayISO();
   const [operations, alerts, departments, unseenRevisions] = await Promise.all([
     prisma.operation.findMany({
@@ -773,41 +724,39 @@ export async function listFinanceRows(user: CurrentUser) {
 }
 
 export async function listRevisions() {
-  return cachedQuery(["revisions-list"], [tags.revisions], async () => {
-    const rows = await prisma.stageDateChange.findMany({
-      where: { progress: { operationDepartment: { isDeleted: false, operation: { isDeleted: false } } } },
-      include: {
-        createdBy: true,
-        progress: {
-          include: {
-            stageDefinition: true,
-            operationDepartment: { include: { department: true, operation: true } },
-          },
+  const rows = await prisma.stageDateChange.findMany({
+    where: { progress: { operationDepartment: { isDeleted: false, operation: { isDeleted: false } } } },
+    include: {
+      createdBy: true,
+      progress: {
+        include: {
+          stageDefinition: true,
+          operationDepartment: { include: { department: true, operation: true } },
         },
       },
-      orderBy: { createdAt: "desc" },
-      take: 200,
-    });
-    return rows.map((row) => ({
-      id: row.id,
-      kind: row.kind,
-      field: row.field,
-      oldDate: row.oldDate ? dateToIso(row.oldDate) : null,
-      newDate: row.newDate ? dateToIso(row.newDate) : null,
-      reason: row.reason,
-      seenAt: row.seenAt ? row.seenAt.toISOString() : null,
-      createdAt: row.createdAt.toISOString(),
-      actorAr: row.createdBy.nameAr,
-      actorEn: row.createdBy.nameEn,
-      stageAr: row.progress.stageDefinition.nameAr,
-      stageEn: row.progress.stageDefinition.nameEn,
-      departmentAr: row.progress.operationDepartment.department.nameAr,
-      departmentEn: row.progress.operationDepartment.department.nameEn,
-      operationId: row.progress.operationDepartment.operationId,
-      operationAr: row.progress.operationDepartment.operation.nameAr,
-      operationEn: row.progress.operationDepartment.operation.nameEn,
-    }));
-  }, 30);
+    },
+    orderBy: { createdAt: "desc" },
+    take: 200,
+  });
+  return rows.map((row) => ({
+    id: row.id,
+    kind: row.kind,
+    field: row.field,
+    oldDate: row.oldDate ? dateToIso(row.oldDate) : null,
+    newDate: row.newDate ? dateToIso(row.newDate) : null,
+    reason: row.reason,
+    seenAt: row.seenAt ? row.seenAt.toISOString() : null,
+    createdAt: row.createdAt.toISOString(),
+    actorAr: row.createdBy.nameAr,
+    actorEn: row.createdBy.nameEn,
+    stageAr: row.progress.stageDefinition.nameAr,
+    stageEn: row.progress.stageDefinition.nameEn,
+    departmentAr: row.progress.operationDepartment.department.nameAr,
+    departmentEn: row.progress.operationDepartment.department.nameEn,
+    operationId: row.progress.operationDepartment.operationId,
+    operationAr: row.progress.operationDepartment.operation.nameAr,
+    operationEn: row.progress.operationDepartment.operation.nameEn,
+  }));
 }
 
 export async function listUsers(user: CurrentUser, options?: { includeDeleted?: boolean }) {
@@ -828,12 +777,7 @@ export async function listUsers(user: CurrentUser, options?: { includeDeleted?: 
 }
 
 export async function listDirectory() {
-  return cachedQuery(
-    ["directory"],
-    [tags.directory, tags.departments],
-    () => prisma.department.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
-    60,
-  );
+  return prisma.department.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } });
 }
 
 export async function getDepartmentDetail(id: string) {
@@ -865,21 +809,15 @@ export async function getDepartmentDetail(id: string) {
 
 export async function listTypes(options?: { includeDeleted?: boolean }) {
   const includeDeleted = Boolean(options?.includeDeleted);
-  return cachedQuery(
-    ["types", includeDeleted ? "all" : "active"],
-    [tags.types],
-    () =>
-      prisma.operationType.findMany({
-        where: includeDeleted ? undefined : { deletedAt: null },
-        include: {
-          // Settings / create-op: system stages only (departmentId null)
-          stages: { where: { departmentId: null, deletedAt: null }, orderBy: { sortOrder: "asc" } },
-          deletedBy: includeDeleted ? { select: { id: true, nameAr: true, nameEn: true, email: true } } : false,
-        },
-        orderBy: { sortOrder: "asc" },
-      }),
-    45,
-  );
+  return prisma.operationType.findMany({
+    where: includeDeleted ? undefined : { deletedAt: null },
+    include: {
+      // Settings / create-op: system stages only (departmentId null)
+      stages: { where: { departmentId: null, deletedAt: null }, orderBy: { sortOrder: "asc" } },
+      deletedBy: includeDeleted ? { select: { id: true, nameAr: true, nameEn: true, email: true } } : false,
+    },
+    orderBy: { sortOrder: "asc" },
+  });
 }
 
 export async function listAudit(user: CurrentUser) {
@@ -905,18 +843,11 @@ export async function listAudit(user: CurrentUser) {
 }
 
 export async function filterOptions() {
-  return cachedQuery(
-    ["filter-options"],
-    [tags.types, tags.directory, tags.departments],
-    async () => {
-      const [types, departments] = await Promise.all([
-        prisma.operationType.findMany({ where: { isActive: true, deletedAt: null }, orderBy: { sortOrder: "asc" } }),
-        prisma.department.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
-      ]);
-      return { types, departments };
-    },
-    60,
-  );
+  const [types, departments] = await Promise.all([
+    prisma.operationType.findMany({ where: { isActive: true, deletedAt: null }, orderBy: { sortOrder: "asc" } }),
+    prisma.department.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
+  ]);
+  return { types, departments };
 }
 
 const needInclude = {

@@ -126,7 +126,7 @@ export function Shell({
             const badge = item.badge ? counts[item.badge] : 0;
             const label = d.nav[item.key];
             const link = (
-              <Link href={item.href} prefetch className={active ? "nav-link active" : "nav-link"}>
+              <Link href={item.href} prefetch={false} className={active ? "nav-link active" : "nav-link"}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                   <path d={item.icon} />
                 </svg>
